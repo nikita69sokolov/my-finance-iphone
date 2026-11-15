@@ -12,6 +12,7 @@ const CATEGORY_DEFAULTS = [
   {id:'shopping',name:'Покупки',icon:'🛍️',color:'#bd9dea',kind:'expense'},
   {id:'leisure',name:'Досуг',icon:'🎬',color:'#8bcfe8',kind:'expense'},
   {id:'credit',name:'Кредиты и ипотека',icon:'🏦',color:'#f1b979',kind:'expense'},
+  {id:'subscriptions',name:'Подписки',icon:'🔁',color:'#b2a5fa',kind:'expense'},
   {id:'services',name:'Связь и услуги',icon:'📱',color:'#a9accb',kind:'expense'},
   {id:'other-expense',name:'Прочее',icon:'📦',color:'#8393a6',kind:'expense'},
   {id:'salary',name:'Зарплата',icon:'💼',color:'#6ddcb6',kind:'income'},
@@ -20,7 +21,7 @@ const CATEGORY_DEFAULTS = [
   {id:'other-income',name:'Другие поступления',icon:'✨',color:'#c4d3b3',kind:'income'},
   {id:'transfer',name:'Перевод между счетами',icon:'↔️',color:'#8393a6',kind:'transfer'}
 ];
-const DEFAULT_STATE = () => ({version:1,transactions:[],budgets:{},debts:[],categories:structuredCloneSafe(CATEGORY_DEFAULTS)});
+const DEFAULT_STATE = () => ({version:2,transactions:[],budgets:{},debts:[],subscriptions:[],categories:structuredCloneSafe(CATEGORY_DEFAULTS)});
 let state = DEFAULT_STATE();
 let db = null;
 let storageFallback = false;
@@ -29,6 +30,7 @@ let activeMonth = monthNow();
 let transactionFilter = 'all';
 let transactionSearch = '';
 let importDraft = null;
+let subscriptionCandidatesHidden = false;
 let isBusy = false;
 const fmtRub = new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:2});
 const fmtShort = new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
@@ -49,11 +51,26 @@ function catOptions(kind, selected){return state.categories.filter(c=>c.kind===k
 function normalizeState(input){
   if(!input || typeof input!=='object' || !Array.isArray(input.transactions) || !Array.isArray(input.debts) || typeof input.budgets!=='object') throw new Error('Неверный формат резервной копии');
   const cats=Array.isArray(input.categories)?input.categories:CATEGORY_DEFAULTS;
+  const keptCats=cats.filter(c=>c && typeof c.id==='string' && typeof c.name==='string' && ['expense','income','transfer'].includes(c.kind)).slice(0,150);
+  for(const cat of CATEGORY_DEFAULTS){if(!keptCats.some(c=>c.id===cat.id))keptCats.push(structuredCloneSafe(cat));}
   return {
-    version:1,
-    categories:cats.filter(c=>c && typeof c.id==='string' && typeof c.name==='string' && ['expense','income','transfer'].includes(c.kind)).slice(0,150),
+    version:2,
+    categories:keptCats,
     transactions:input.transactions.filter(x=>x && typeof x.date==='string' && ['expense','income','transfer'].includes(x.type) && Number.isFinite(Number(x.amount))).slice(0,100000).map(x=>({id:String(x.id||uid()),type:x.type,date:x.date,title:String(x.title||'Операция').slice(0,250),amount:Math.abs(Number(x.amount)),category:String(x.category||'other-expense'),account:String(x.account||'').slice(0,80),source:String(x.source||'manual').slice(0,80)})),
-    debts:input.debts.filter(x=>x && typeof x.name==='string').slice(0,100).map(x=>({id:String(x.id||uid()),name:x.name.slice(0,100),balance:Math.max(0,validNumber(x.balance)),rate:Math.max(0,validNumber(x.rate)),payment:Math.max(0,validNumber(x.payment))})),
+    debts:input.debts.filter(x=>x && typeof x.name==='string').slice(0,100).map(x=>({
+      id:String(x.id||uid()),name:x.name.slice(0,100),kind:['mortgage','loan','creditcard','other'].includes(x.kind)?x.kind:'loan',
+      lender:String(x.lender||'').slice(0,100),balance:Math.max(0,validNumber(x.balance)),rate:Math.max(0,validNumber(x.rate)),
+      payment:Math.max(0,validNumber(x.payment)),dueDay:Math.min(31,Math.max(0,Number(x.dueDay)||0)),
+      balanceDate:parseBankDate(x.balanceDate)||'',notes:String(x.notes||'').slice(0,350)
+    })),
+    subscriptions:(Array.isArray(input.subscriptions)?input.subscriptions:[]).filter(x=>x&&typeof x.name==='string').slice(0,250).map(x=>({
+      id:String(x.id||uid()),name:x.name.slice(0,120),amount:Math.max(0,validNumber(x.amount)),
+      cycle:['weekly','monthly','quarterly','yearly'].includes(x.cycle)?x.cycle:'monthly',
+      nextDate:parseBankDate(x.nextDate)||'',
+      status:['active','paused','cancelled'].includes(x.status)?x.status:'active',
+      source:x.source==='statement'?'statement':'manual',
+      matchKey:String(x.matchKey||'').slice(0,120), notes:String(x.notes||'').slice(0,250)
+    })),
     budgets:Object.fromEntries(Object.entries(input.budgets).filter(([k,v])=>typeof k==='string' && Number.isFinite(Number(v)) && Number(v)>0).map(([k,v])=>[k,Number(v)]))
   };
 }
@@ -93,6 +110,8 @@ function renderHome(){
   const {income,expense}=monthTotals();const net=income-expense;
   const byCat=totalsByCategory();
   let progress=0;const segment=byCat.slice(0,5).map((c,i)=>{const start=progress;progress+=100*c.amount/Math.max(expense,1);return {c,start,finish:progress,color:c.category.color};});
+  const debtDue=state.debts.filter(d=>d.balance>0).reduce((a,d)=>a+d.payment,0);
+  const subDue=state.subscriptions.filter(x=>x.status==='active').reduce((a,x)=>a+subscriptionMonthly(x),0);
   const gradient=segment.length?`conic-gradient(${segment.map(s=>`${s.color} ${s.start.toFixed(2)}% ${s.finish.toFixed(2)}%`).join(',')}${progress<100?`, #536e83 ${progress.toFixed(2)}% 100%`:''})`:'conic-gradient(#2a4152 0 100%)';
   const legend=byCat.slice(0,4).map(c=>`<div class="legend-row"><span class="legend-label"><i class="dot" style="background:${esc(c.category.color)}"></i>${esc(c.category.name)}</span><b class="legend-value">${Math.round(c.amount/Math.max(expense,1)*100)}%</b></div>`).join('');
   return heading('Обзор')+monthBar()+`
@@ -100,9 +119,12 @@ function renderHome(){
   <div class="two-col"><div class="metric-card"><div class="metric-head"><span class="metric-symbol in">↙</span>Доходы</div><div class="metric-value">${short(income)}</div></div><div class="metric-card"><div class="metric-head"><span class="metric-symbol out">↗</span>Расходы</div><div class="metric-value">${short(expense)}</div></div></div>
   ${sectionHeader('Куда уходят деньги',byCat.length?'Все операции':'','view-transactions')}
   <div class="panel">${byCat.length?`<div class="chart-wrap"><div class="donut" role="img" aria-label="Расходы по категориям" style="background:${gradient}"><div class="donut-center"><div><b>${short(expense)}</b><span>всего расходов</span></div></div></div><div class="legend">${legend}</div></div>`:empty('◔','Категории появятся здесь','Когда добавите расходы, покажем их распределение.')}</div>
+  ${sectionHeader('Регулярные обязательства')}
+  <div class="two-col"><div class="metric-card"><div class="metric-head">🏦 Кредиты и ипотека</div><div class="metric-value">${short(debtDue)}</div><button class="text-link" type="button" data-action="view-debts">Платежи →</button></div><div class="metric-card"><div class="metric-head">🔁 Подписки</div><div class="metric-value">${short(subDue)}</div><button class="text-link" type="button" data-action="view-subscriptions">Открыть →</button></div></div>
+  <p class="subtle">Плановые суммы за месяц. Уже проведённые списания в разделе расходов повторно не прибавляются.</p>
   ${sectionHeader('Последние операции','Посмотреть все','view-transactions')}
   ${txList(monthTx().sort((a,b)=>b.date.localeCompare(a.date)||String(b.id).localeCompare(String(a.id))),4)}
-  <div class="form-actions small-top"><button type="button" class="primary-btn wide" data-action="add-tx">+ Новая операция</button><button type="button" class="secondary-btn" data-action="import-csv">Импорт CSV</button></div>`;
+  <div class="form-actions small-top"><button type="button" class="primary-btn wide" data-action="add-tx">+ Новая операция</button><button type="button" class="secondary-btn" data-action="import-sber">Сбер PDF</button></div>`;
 }
 function renderTransactions(){
   let all=monthTx().sort((a,b)=>b.date.localeCompare(a.date)||String(b.id).localeCompare(String(a.id)));
@@ -127,21 +149,112 @@ function debtForecast(d){
  if(!Number.isFinite(months)||months>1200)return 'Срок не рассчитан';
  return `≈ ${months} мес. до закрытия`;
 }
+// Scheduled amounts are separate from bank transactions. Never double-count them as actual expenses.
+function dueDateForDay(day, after=today()){
+ if(!day)return '';
+ const [y,m,d]=after.split('-').map(Number);
+ const get=(yy,mm)=>{const last=new Date(yy,mm,0).getDate();return `${yy}-${String(mm).padStart(2,'0')}-${String(Math.min(day,last)).padStart(2,'0')}`;};
+ const current=get(y,m);if(current>=after)return current;
+ const next=new Date(y,m,1);return get(next.getFullYear(),next.getMonth()+1);
+}
+function daysBetween(a,b){return Math.round((new Date(`${b}T12:00:00Z`)-new Date(`${a}T12:00:00Z`))/86400000);}
+function subscriptionMonthly(s){return s.amount*({weekly:52/12,monthly:1,quarterly:1/3,yearly:1/12}[s.cycle]||1);}
+function addCycleDate(iso,cycle){
+ const [y,m,d]=iso.split('-').map(Number);
+ if(cycle==='weekly'){const q=new Date(Date.UTC(y,m-1,d+7));return q.toISOString().slice(0,10);}
+ const incr={monthly:1,quarterly:3,yearly:12}[cycle]||1;
+ const base=new Date(Date.UTC(y,m-1+incr,1));const last=new Date(Date.UTC(base.getUTCFullYear(),base.getUTCMonth()+1,0)).getUTCDate();
+ return `${base.getUTCFullYear()}-${String(base.getUTCMonth()+1).padStart(2,'0')}-${String(Math.min(d,last)).padStart(2,'0')}`;
+}
+function nextAfter(last,cycle){let date=addCycleDate(last,cycle);for(let i=0;i<150&&date<today();i++)date=addCycleDate(date,cycle);return date;}
+function scheduledStatus(date){if(!date)return 'Дата не задана';const days=daysBetween(today(),date);return days<0?'Требует проверки':days===0?'Сегодня':days<=7?`Через ${days} дн.`:dateView(date);}
 function renderDebts(){
- const total=state.debts.reduce((n,d)=>n+d.balance,0);
- return heading('Кредиты','ДОЛГОВАЯ НАГРУЗКА',`<button class="secondary-btn" data-action="add-debt">+ Кредит</button>`)+`<div class="hero"><div class="hero-label">Остаток задолженности</div><div class="hero-value">${short(total)}</div><div class="hero-foot">Плановые платежи в месяц: ${short(state.debts.reduce((n,d)=>n+d.payment,0))}</div></div>${sectionHeader('Мои обязательства')}${state.debts.length?state.debts.map(d=>`<div class="debt-card"><div class="budget-line"><div class="debt-name">${esc(d.name)}</div><button type="button" class="text-link" data-action="edit-debt" data-id="${esc(d.id)}">Изменить</button></div><div class="debt-total">${money(d.balance)}</div><div class="debt-stats"><div><small>Ставка</small><strong>${fmtShort.format(d.rate)}% годовых</strong></div><div><small>Платёж в месяц</small><strong>${money(d.payment)}</strong></div></div><p class="subtle">${esc(debtForecast(d))}</p></div>`).join(''):empty('▤','Добавьте кредит','Запишите остаток долга, процентную ставку и ежемесячный платёж.','Добавить кредит','add-debt')}<p class="footnote">Оценка срока погашения приблизительная, без изменения ставки, комиссий и дополнительных платежей. Введите новый остаток после платежа самостоятельно.</p>`;
+ const active=state.debts.filter(d=>d.balance>0);
+ const total=active.reduce((n,d)=>n+d.balance,0),payments=active.reduce((n,d)=>n+d.payment,0);
+ const monthlyInterest=active.reduce((n,d)=>n+d.balance*d.rate/1200,0);
+ return heading('Кредиты и ипотека','ДОЛГОВАЯ НАГРУЗКА',`<button class="secondary-btn" data-action="add-debt">+ Добавить</button>`)+`
+ <div class="hero"><div class="hero-label">Общий остаток долга</div><div class="hero-value">${short(total)}</div><div class="hero-foot">Платежи в месяц: ${short(payments)} · Из них проценты ≈ ${short(monthlyInterest)}</div></div>
+ <div class="notice warn small-top">Остатки и даты обновляются вручную по сведениям банка. Приложение не совершает платежей, не запрашивает кредиты через API и не считает плановый платёж подтверждённым.</div>
+ ${sectionHeader('Мои обязательства')}
+ ${state.debts.length?state.debts.map(d=>{const due=dueDateForDay(d.dueDay);const interest=d.balance*d.rate/1200;return `<div class="debt-card"><div class="budget-line"><div class="debt-name">${d.kind==='mortgage'?'🏠 ':d.kind==='creditcard'?'💳 ':'🏦 '}${esc(d.name)}</div><button type="button" class="text-link" data-action="edit-debt" data-id="${esc(d.id)}">Изменить</button></div><div class="subtle">${esc(d.lender||'Банк не указан')} ${d.dueDay?'· Платёж '+d.dueDay+'-го числа':''}</div><div class="debt-total">${money(d.balance)}</div><div class="debt-stats"><div><small>Ставка</small><strong>${d.rate}% годовых</strong></div><div><small>Платёж</small><strong>${money(d.payment)}</strong></div></div><p class="subtle">${due?'Следующий плановый платёж: '+dateView(due)+' ('+scheduledStatus(due)+')':'Укажите день платежа'} · ${esc(debtForecast(d))}</p><p class="subtle">Проценты за условный месяц ≈ ${money(interest)}; уменьшение долга при платеже ≈ ${money(Math.max(0,d.payment-interest))}. ${d.balanceDate?'Остаток проверен '+dateView(d.balanceDate)+'.':''}</p>${d.notes?`<p class="subtle">${esc(d.notes)}</p>`:''}</div>`;}).join(''):empty('▤','Нет кредитов','Добавьте ипотеку или потребительский кредит: остаток, ставку, сумму и день платежа.','Добавить кредит','add-debt')}
+ <p class="footnote">Прогноз приблизительный: без изменения ставок, страховок, комиссий и досрочного погашения. Для точных платежей сверяйтесь с графиком банка.</p>`;
+}
+const KNOWN_SUBSCRIPTIONS=[
+ [/apple\.com\/bill|apple services|itunes|icloud/,'Apple / iCloud'],
+ [/яндекс\s*(плюс|plus)|yandex\s*(plus|music)|ya\.plus/,'Яндекс Плюс'],
+ [/sberprime|сберпрайм/,'СберПрайм'],
+ [/t[\s-]?bank\s*pro|т[\s-]?банк\s*про|тинькофф\s*про/,'Т-Банк Pro'],
+ [/chatgpt|openai/,'ChatGPT'],
+ [/telegram\s*premium|телеграм\s*премиум/,'Telegram Premium'],
+ [/youtube\s*premium|ютуб\s*премиум/,'YouTube Premium'],
+ [/google\s*one/,'Google One'],[/netflix/,'Netflix'],[/spotify/,'Spotify'],
+ [/kinopoisk|кинопоиск/,'Кинопоиск'],[/okko|окко/,'Okko'],
+ [/(?:^|\W)ivi(?:\W|$)|иви/,'Иви'],[/wink|винк/,'Wink'],
+ [/kion|кион/,'Kion'],[/megogo|мегого/,'Megogo'],
+ [/vk\s*(music|музыка)|вк\s*музыка/,'Музыка'],
+ [/ozon\s*premium|озон\s*премиум/,'Ozon Premium']
+];
+function subMerchant(text){
+ const s=String(text||'').toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').trim();
+ for(const [re,name] of KNOWN_SUBSCRIPTIONS){if(re.test(s))return {key:name.toLowerCase(),name,known:true};}
+ // Remove common bank operation prefixes and terminal IDs; generic merchants remain candidates only.
+ const cleaned=s.replace(/(?:оплата|покупка|списание|безналичная|операция|payment|purchase|card|карта|pos|online|услуги|перевод)\s*/g,' ').replace(/\d{4,}|\*+/g,' ').replace(/[^а-яa-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+ if(cleaned.length<5)return null;
+ const key=cleaned.split(' ').slice(0,3).join(' ').slice(0,60);
+ return {key,name:key.replace(/^./,ch=>ch.toUpperCase()),known:false};
+}
+function proposedSubscriptions(){
+ const groups=new Map();
+ for(const tx of state.transactions){
+  if(tx.type!=='expense'||!(tx.amount>0)||tx.amount>100000||!parseBankDate(tx.date)||tx.category==='credit'||tx.category==='transfer')continue;
+  const m=subMerchant(tx.title);if(!m)continue;
+  const k=m.key;if(!groups.has(k))groups.set(k,{...m,transactions:[]});groups.get(k).transactions.push(tx);
+ }
+ const active=state.subscriptions.filter(x=>x.status!=='cancelled');const candidates=[];
+ for(const group of groups.values()){
+  if(active.some(s=>s.matchKey===group.key||s.name.toLowerCase()===group.name.toLowerCase()))continue;
+  const rows=group.transactions.sort((a,b)=>a.date.localeCompare(b.date));if(rows.length<2)continue;
+  const cycles=[['weekly',5,10],['monthly',25,38],['quarterly',80,103],['yearly',335,398]];
+  let best=null;
+  for(let i=1;i<rows.length;i++){
+   const a=rows[i-1],b=rows[i],gap=daysBetween(a.date,b.date),diff=Math.abs(a.amount-b.amount)/Math.max(a.amount,b.amount);
+   if(gap<=0||diff>0.20)continue;
+   const hit=cycles.find(([,min,max])=>gap>=min&&gap<=max);
+   if(hit)best={a,b,cycle:hit[0],gap};
+  }
+  if(!best)continue;
+  const last=rows[rows.length-1];const relevant=rows.filter(r=>Math.abs(r.amount-last.amount)/Math.max(r.amount,last.amount)<0.20);
+  if(relevant.length<2)continue;
+  candidates.push({key:group.key,name:group.name,amount:last.amount,cycle:best.cycle,lastDate:last.date,nextDate:nextAfter(last.date,best.cycle),known:group.known,occurrences:rows.length});
+ }
+ return candidates.sort((a,b)=>Number(b.known)-Number(a.known)||b.occurrences-a.occurrences).slice(0,40);
+}
+const CYCLE_LABEL={weekly:'неделю',monthly:'месяц',quarterly:'3 месяца',yearly:'год'};
+function renderSubscriptions(){
+ const active=state.subscriptions.filter(x=>x.status==='active');const monthly=active.reduce((a,x)=>a+subscriptionMonthly(x),0);
+ const candidates=proposedSubscriptions();
+ return heading('Подписки','РЕГУЛЯРНЫЕ СПИСАНИЯ',`<button class="secondary-btn" type="button" data-action="add-subscription">+ Добавить</button>`)+`
+ <div class="hero"><div class="hero-label">Активные подписки · эквивалент за месяц</div><div class="hero-value">${short(monthly)}</div><div class="hero-foot">≈ ${short(monthly*12)} в год · Подписок: ${active.length}</div></div>
+ <div class="notice small-top">Мы ищем повторяющиеся списания в выписках, которые вы импортировали. Это предположения — проверьте, что платежи действительно относятся к подписке. Apple ID и другие аккаунты напрямую не читаются.</div>
+ ${sectionHeader('Мои подписки')}
+ ${state.subscriptions.length?state.subscriptions.map(s=>`<div class="debt-card"><div class="budget-line"><div class="debt-name">🔁 ${esc(s.name)}</div><button class="text-link" type="button" data-action="edit-subscription" data-id="${esc(s.id)}">Изменить</button></div><div class="debt-total">${money(s.amount)} <span class="subtle">/ ${esc(CYCLE_LABEL[s.cycle])}</span></div><div class="subtle">${s.status==='active'?'Активна':s.status==='paused'?'На паузе':'Отменена'} · ${s.source==='statement'?'По выписке':'Добавлена вручную'} · ${s.nextDate?'Ожидаемое списание: '+dateView(s.nextDate)+' ('+scheduledStatus(s.nextDate)+')':'Дата списания неизвестна'}</div>${s.notes?`<p class="subtle">${esc(s.notes)}</p>`:''}</div>`).join(''):empty('◴','Список пуст','Добавьте подписку вручную или проверьте кандидатов, найденных по банковским выпискам.','Добавить подписку','add-subscription')}
+ ${sectionHeader('Найдено по банковским операциям')}
+ <div class="panel">${candidates.length?`<p class="subtle">Возможные подписки: ${candidates.length}. Каждое списание нужно подтвердить.</p>${candidates.map((c,i)=>`<div class="suggestion-row"><div><strong>${esc(c.name)}</strong><div class="subtle">${money(c.amount)} / ${esc(CYCLE_LABEL[c.cycle])} · ${c.occurrences} списания · предположительная следующая дата: ${dateView(c.nextDate)}</div></div><button class="secondary-btn" data-action="confirm-subscription" data-index="${i}">Проверить</button></div>`).join('')}`:empty('✓','Кандидатов пока нет','Загрузите банковские выписки за 2–3 месяца. Подписка может не обнаружиться, если списания нерегулярны или банк скрывает название сервиса.')}</div>
+ <div class="setting-card small-top"><h3>Подписки Apple ID</h3><p>На iPhone откройте «Настройки» → своё имя → «Подписки». Там виден официальный список и стоимость. Добавьте нужные подписки сюда вручную: веб-приложение не может самостоятельно прочитать чужие покупки из Apple ID. Оплата через Apple может объединять разные покупки.</p></div>
+ <p class="footnote">Плановая сумма не добавляется к реальным расходам автоматически. Список кандидатов формируется локально, никакой отправки операций на сервер нет.</p>`;
 }
 function renderSettings(){
  return heading('Настройки','ДАННЫЕ И ПРИВАТНОСТЬ')+`
  <div class="stack"><div class="notice">Ваши записи хранятся локально на устройстве. Мы не отправляем суммы, выписки или пароли в GitHub и сторонние сервисы.</div>
- <div class="setting-card"><h3>Импорт операций</h3><p>Загрузите CSV-выписку из приложения банка или «Файлов» iPhone. Можно вручную выбрать колонки и проверить операции перед импортом. PDF и XLSX пока не поддерживаются.</p><button type="button" data-action="import-csv" class="secondary-btn">Загрузить CSV</button></div>
- <div class="setting-card"><h3>Резервная копия</h3><p>Сохраните зашифрованную копию всех операций, бюджетов и кредитов в «Файлы». Пароль нужен для восстановления — мы его не храним.</p><button type="button" data-action="export-backup" class="secondary-btn">Создать копию</button><button type="button" data-action="restore-backup" class="secondary-btn">Восстановить</button></div>
+ <div class="setting-card"><h3>Сбербанк · только чтение</h3><p>Откройте СберБанк Онлайн → «Выписки и справки» → получите выписку по карте/счёту в PDF → сохраните в «Файлы» на iPhone. Мы прочитаем документ прямо на телефоне, покажем результат перед импортом и не будем подключаться к банковскому аккаунту.</p><div class="notice">Без входа в банк, SMS и кодов подтверждения. Переводы, платежи и управление счетами технически отсутствуют.</div><button type="button" data-action="import-sber" class="primary-btn wide small-top">Загрузить PDF Сбербанка</button><p class="subtle small-top">Распознавание текстовых PDF — предварительная версия. Внимательно проверьте даты, направления и суммы. Сканированные PDF могут не прочитаться.</p></div>
+ <div class="setting-card"><h3>Импорт CSV</h3><p>Для Сбербанка, Т-Банка и других банков: загрузите CSV-файл. Выберите колонки и проверьте операции перед сохранением.</p><button type="button" data-action="import-csv" class="secondary-btn">Загрузить CSV</button></div>
+ <div class="setting-card"><h3>Резервная копия</h3><p>Сохраните зашифрованную копию всех операций, бюджетов, кредитов и подписок в «Файлы». Пароль нужен для восстановления — мы его не храним.</p><button type="button" data-action="export-backup" class="secondary-btn">Создать копию</button><button type="button" data-action="restore-backup" class="secondary-btn">Восстановить</button></div>
  <div class="setting-card"><h3>Установка на iPhone</h3><p>Откройте опубликованную ссылку в Safari → «Поделиться» → «На экран Домой» → «Открывать как веб-приложение». После первого запуска основные функции работают без интернета.</p></div>
- <div class="setting-card"><h3>Статистика</h3><p>Операций: ${state.transactions.length}. Активных лимитов: ${Object.keys(state.budgets).length}. Кредитов: ${state.debts.length}.</p><button type="button" class="danger-btn" data-action="clear-all">Удалить все данные</button></div>
- <div class="footnote">Мои Финансы v1.0 · ₽ · Без рекламы и аналитики. Чтобы не потерять записи, регулярно сохраняйте резервную копию в безопасном месте. Публикация кода приложения не публикует ваши финансовые операции.</div></div>`;
+ <div class="setting-card"><h3>Статистика</h3><p>Операций: ${state.transactions.length}. Активных лимитов: ${Object.keys(state.budgets).length}. Кредитов: ${state.debts.length}. Подписок: ${state.subscriptions.length}.</p><button type="button" class="danger-btn" data-action="clear-all">Удалить все данные</button></div>
+ <div class="footnote">Мои Финансы v1.2 · ₽ · Без рекламы и аналитики. Чтобы не потерять записи, регулярно сохраняйте резервную копию в безопасном месте. Публикация кода приложения не публикует ваши финансовые операции.</div></div>`;
 }
 function render(){
- const pages={home:renderHome,transactions:renderTransactions,budgets:renderBudgets,debts:renderDebts,settings:renderSettings};
+ const pages={home:renderHome,transactions:renderTransactions,budgets:renderBudgets,debts:renderDebts,subscriptions:renderSubscriptions,settings:renderSettings};
  $('#app').innerHTML=(pages[activeTab]||renderHome)();
  $$('.nav-btn').forEach(button=>{button.classList.toggle('active',button.dataset.tab===activeTab);button.setAttribute('aria-current',button.dataset.tab===activeTab?'page':'false');});
 }
@@ -164,7 +277,12 @@ function openBudget(id){
 }
 function openDebt(id){
  const debt=state.debts.find(d=>d.id===id);
- openModal(debt?'Изменить кредит':'Добавить кредит',`<form id="debtForm" data-id="${esc(id||'')}">${formField('name','Название кредита','text',debt?.name||'','Например, ипотека','required maxlength="100"')}${formField('balance','Остаток основного долга, ₽','number',debt?.balance??'','','required')}<div class="form-grid">${formField('rate','Ставка, % годовых','number',debt?.rate??'','','required')}${formField('payment','Платёж в месяц, ₽','number',debt?.payment??'','','required')}</div><div class="notice warn">Это справочник по долгам, а не связь с банком. Остаток нужно обновлять после платежей.</div><div class="form-actions"><button type="submit" class="primary-btn">Сохранить</button>${debt?`<button type="button" class="danger-btn" data-action="delete-debt" data-id="${esc(id)}">Удалить</button>`:''}</div></form>`);
+ openModal(debt?'Редактировать обязательство':'Добавить кредит или ипотеку',`<form id="debtForm" data-id="${esc(id||'')}"><div class="field"><label for="debtKind">Тип обязательства</label><select id="debtKind" name="kind">${[['loan','Потребительский кредит'],['mortgage','Ипотека'],['creditcard','Кредитная карта'],['other','Другой долг']].map(([value,label])=>`<option value="${value}" ${debt?.kind===value?'selected':''}>${label}</option>`).join('')}</select></div>${formField('name','Название','text',debt?.name||'','Например, ипотека Сбербанка','required maxlength="100"')}${formField('lender','Банк','text',debt?.lender||'','Сбербанк или Т-Банк','maxlength="100"')}${formField('balance','Текущий остаток основного долга, ₽','number',debt?.balance??'','','required')}<div class="form-grid">${formField('rate','Ставка, % годовых','number',debt?.rate??'','','required')}${formField('payment','Обязательный платёж, ₽','number',debt?.payment??'','','required')}</div><div class="form-grid">${formField('dueDay','День платежа (1–31)','number',debt?.dueDay||'','','min="1" max="31" step="1"')}${formField('balanceDate','Дата проверки остатка','date',debt?.balanceDate||today())}</div>${formField('notes','Заметка','text',debt?.notes||'','Например, страховка отдельно','maxlength="350"')}<div class="notice warn">Плановый платёж не уменьшает остаток сам по себе. Обновляйте остаток по банку, чтобы не показывать выдуманные данные.</div><div class="form-actions"><button type="submit" class="primary-btn">Сохранить</button>${debt?`<button type="button" class="danger-btn" data-action="delete-debt" data-id="${esc(id)}">Удалить</button>`:''}</div></form>`);
+}
+function openSubscription(id,proposal){
+ const s=id?state.subscriptions.find(x=>x.id===id):null;
+ const c=proposal||{};
+ openModal(s?'Редактировать подписку':proposal?'Подтвердить найденную подписку':'Добавить подписку',`<form id="subscriptionForm" data-id="${esc(id||'')}" data-key="${esc(s?.matchKey||c.key||'')}" data-source="${esc(s?.source|| (proposal?'statement':'manual'))}">${formField('name','Название сервиса','text',s?.name||c.name||'','Например, Яндекс Плюс','required maxlength="120"')}${formField('amount','Цена одного списания, ₽','number',s?.amount??c.amount??'','','required')}<div class="field"><label for="subscriptionCycle">Как часто списывают</label><select name="cycle" id="subscriptionCycle">${Object.entries(CYCLE_LABEL).map(([value,label])=>`<option value="${value}" ${(s?.cycle||c.cycle||'monthly')===value?'selected':''}>Раз в ${label}</option>`).join('')}</select></div>${formField('nextDate','Следующее ожидаемое списание','date',s?.nextDate||c.nextDate||'')}<div class="field"><label for="subscriptionStatus">Статус</label><select id="subscriptionStatus" name="status">${[['active','Активна'],['paused','Приостановлена'],['cancelled','Отменена']].map(([value,label])=>`<option value="${value}" ${(s?.status||'active')===value?'selected':''}>${label}</option>`).join('')}</select></div>${formField('notes','Комментарий','text',s?.notes||'','Тариф или способ оплаты','maxlength="250"')}<div class="notice">Проверьте цену и дату. Данные найдены по банковским списаниям и могут относиться к обычным покупкам. Мы не отменяем и не оплачиваем подписки.</div><div class="form-actions"><button type="submit" class="primary-btn">Сохранить подписку</button>${s?`<button type="button" data-action="delete-subscription" data-id="${esc(id)}" class="danger-btn">Удалить</button>`:''}</div></form>`);
 }
 function parseCsv(text,delim){
  const rows=[];let row=[],value='',inside=false;
@@ -207,7 +325,7 @@ function parseBankDate(value){
 function importCategory(value,type='expense'){
  if(type==='income')return /возврат|refund/i.test(value)?'refund':/зарплат|salary|payroll/i.test(value)?'salary':'additional';
  const s=String(value).toLocaleLowerCase('ru-RU');
- const tests=[[/супермар|продукт|пятероч|магнит|перекрест|лента|дикси|food|grocery/,'food'],[/авто|азс|заправ|бенз|топлив|нефт|лукойл/,'auto'],[/жкх|коммунал|газпром межрегион|электрич|водоканал|аренд|дом/,'home'],[/аптек|лекар|медиц|клиник|health/,'health'],[/детск|игруш|школ|садик|дети/,'children'],[/такси|яндекс go|метро|автобус|transport/,'transport'],[/интернет|связь|мтс|мегафон|билайн|мобильн/,'services'],[/кредит|ипотек|погашен/,'credit'],[/ресторан|кафе|кино|развлечен|досуг/,'leisure'],[/маркетплейс|ozon|озон|wildberries|вайлдберриз|одежд|покупк/,'shopping']];
+ const tests=[[/супермар|продукт|пятероч|магнит|перекрест|лента|дикси|food|grocery/,'food'],[/авто|азс|заправ|бенз|топлив|нефт|лукойл/,'auto'],[/жкх|коммунал|газпром межрегион|электрич|водоканал|аренд|дом/,'home'],[/аптек|лекар|медиц|клиник|health/,'health'],[/детск|игруш|школ|садик|дети/,'children'],[/такси|яндекс go|метро|автобус|transport/,'transport'],[/интернет|связь|мтс|мегафон|билайн|мобильн/,'services'],[/кредит|ипотек|погашен/,'credit'],[/apple\.com|itunes|icloud|яндекс плюс|yandex plus|сберпрайм|sberprime|openai|chatgpt|telegram premium|netflix|spotify|youtube premium|google one|kinopoisk|кинопоиск|okko|kion/,'subscriptions'],[/ресторан|кафе|кино|развлечен|досуг/,'leisure'],[/маркетплейс|ozon|озон|wildberries|вайлдберриз|одежд|покупк/,'shopping']];
  for(const [pattern,id] of tests)if(pattern.test(s))return id;
  return 'other-expense';
 }
@@ -232,7 +350,7 @@ function importRow(row,columns,opts){
  if(opts.forceType!=='auto')type=opts.forceType;
  const title=val('title')||val('category')||'Операция по выписке';
  const catSource=val('category')+' '+title;
- return {id:uid(),type,amount:Math.abs(amount),date,title:title.slice(0,250),category:type==='transfer'?'transfer':importCategory(catSource,type),account:opts.account,source:'csv'};
+ return {id:uid(),type,amount:Math.abs(amount),date,title:title.slice(0,250),category:type==='transfer'?'transfer':importCategory(catSource,type),account:opts.account,source:opts.source||'csv'};
 }
 function csvColumns(headers){const used=[];const get=(key,terms)=>{const idx=headerGuess(headers,terms,used);if(idx>=0)used.push(idx);return idx;};return {
   date:get('date',['датаоперации','датаплатежа','дататранзакции','датапроведения','дата','date','datetime','time']),
@@ -248,12 +366,12 @@ function csvPreview(){
  if(!importDraft)return;
  const {rows,headers,filename}=importDraft;const fields=csvColumns(headers);
  const bank=/tinkoff|тиньк|t-bank|т-банк/i.test(filename)?'Т-Банк':/sber|сбер/i.test(filename)?'Сбербанк':'Банк';
- openModal('Импорт выписки',`<form id="importForm"><div class="notice">Файл «${esc(filename)}» · ${rows.length} строк. Проверьте сопоставление колонок перед загрузкой.</div><div class="small-top">${selectColumn('Дата *','date',headers,fields.date)}${selectColumn('Описание','title',headers,fields.title)}${selectColumn('Сумма (со знаком)','amount',headers,fields.amount)}<div class="form-grid">${selectColumn('Расход, отдельная колонка','debit',headers,fields.debit)}${selectColumn('Приход, отдельная колонка','credit',headers,fields.credit)}</div><div class="form-grid">${selectColumn('Тип операции','type',headers,fields.type)}${selectColumn('Категория банка','category',headers,fields.category)}</div>${formField('account','Название счёта / банка','text',bank,'Название банка','required maxlength="80"')}<div class="field"><label>Если сумма положительная и тип неясен</label><select id="importPositive"><option value="expense">Считать расходом</option><option value="income">Считать доходом</option></select></div><div class="field"><label>Тип импорта</label><select id="importForce"><option value="auto">Определить автоматически</option><option value="expense">Все операции — расходы</option><option value="income">Все операции — доходы</option><option value="transfer">Все операции — переводы</option></select></div><p class="subtle">Отрицательные суммы обычно считаются расходами, положительные — по выбранному правилу. Верните неверно определённую операцию через редактирование.</p><button type="button" class="secondary-btn wide" data-action="preview-import">Проверить первые операции</button><div id="importPreview" class="import-preview"><p class="subtle">Нажмите «Проверить первые операции».</p></div><button type="submit" class="primary-btn wide">Импортировать операции</button></div></form>`);
+ openModal('Импорт выписки',`<form id="importForm"><div class="notice">${importDraft.mode==='sber-pdf'?'Сбербанк · PDF (только чтение)':'CSV'} · Файл «${esc(filename)}» · ${rows.length} строк. Проверьте распознанные даты, суммы и типы операций перед загрузкой.</div>${importDraft.mode==='sber-pdf'?'<div class="notice warn small-top">Результат распознавания PDF может содержать неточности. Если найдено подозрительно мало операций, ничего не импортируйте.</div>':''}<div class="small-top">${selectColumn('Дата *','date',headers,fields.date)}${selectColumn('Описание','title',headers,fields.title)}${selectColumn('Сумма (со знаком)','amount',headers,fields.amount)}<div class="form-grid">${selectColumn('Расход, отдельная колонка','debit',headers,fields.debit)}${selectColumn('Приход, отдельная колонка','credit',headers,fields.credit)}</div><div class="form-grid">${selectColumn('Тип операции','type',headers,fields.type)}${selectColumn('Категория банка','category',headers,fields.category)}</div>${formField('account','Название счёта / банка','text',bank,'Название банка','required maxlength="80"')}<div class="field"><label>Если сумма положительная и тип неясен</label><select id="importPositive"><option value="expense">Считать расходом</option><option value="income">Считать доходом</option></select></div><div class="field"><label>Тип импорта</label><select id="importForce"><option value="auto">Определить автоматически</option><option value="expense">Все операции — расходы</option><option value="income">Все операции — доходы</option><option value="transfer">Все операции — переводы</option></select></div><p class="subtle">Отрицательные суммы обычно считаются расходами, положительные — по выбранному правилу. Верните неверно определённую операцию через редактирование.</p><button type="button" class="secondary-btn wide" data-action="preview-import">Проверить первые операции</button><div id="importPreview" class="import-preview"><p class="subtle">Нажмите «Проверить первые операции».</p></div><button type="submit" class="primary-btn wide">Импортировать операции</button></div></form>`);
 }
 function readImportMapping(){
  const fields=['date','title','amount','debit','credit','type','category'];const columns={};for(const key of fields)columns[key]=Number($(`#col-${key}`).value);
  if(columns.date<0||columns.amount<0&&(columns.credit<0&&columns.debit<0))throw new Error('Выберите колонку даты и суммы (либо списание/приход)');
- const opts={account:$('#f-account').value.trim()||'Банк',positiveType:$('#importPositive').value,forceType:$('#importForce').value};
+ const opts={account:$('#f-account').value.trim()||'Банк',positiveType:$('#importPositive').value,forceType:$('#importForce').value,source:importDraft.mode==='sber-pdf'?'sber-pdf':'csv'};
  return {columns,opts};
 }
 function collectImport(){const {columns,opts}=readImportMapping();return importDraft.rows.map(row=>importRow(row,columns,opts)).filter(Boolean);}
@@ -268,7 +386,84 @@ async function handleCsv(file){
  if(data.length<2)throw new Error('В файле не найдена таблица с операциями');
  const headers=data[0];const rows=data.slice(1,100001);
  if(rows.length<1)throw new Error('В выписке нет операций');
- importDraft={headers,rows,filename:file.name};csvPreview();
+ importDraft={headers,rows,filename:file.name,mode:'csv'};csvPreview();
+}
+// Sber PDF import v1.1. PDF.js files are vendored in /vendor by GitHub Actions.
+// No bank authentication or banking network endpoints are used.
+let pdfJsPromise;
+async function pdfJs(){
+ if(!pdfJsPromise)pdfJsPromise=import('./vendor/pdf.min.mjs').then(lib=>{
+  lib.GlobalWorkerOptions.workerSrc=new URL('./vendor/pdf.worker.min.mjs',location.href).href;
+  return lib;
+ }).catch(err=>{pdfJsPromise=null;throw new Error('Модуль чтения PDF ещё не опубликован или недоступен. Обновите приложение при наличии интернета.');});
+ return pdfJsPromise;
+}
+function pdfTextLines(items){
+ const glyphs=items.filter(it=>it?.str?.trim() && Array.isArray(it.transform) && Number.isFinite(it.transform[4]) && Number.isFinite(it.transform[5])).map(it=>({s:it.str.trim(),x:it.transform[4],y:it.transform[5]}));
+ glyphs.sort((a,b)=>b.y-a.y||a.x-b.x);
+ const lines=[];
+ for(const g of glyphs){let line=lines.find(l=>Math.abs(l.y-g.y)<2.6);if(!line){line={y:g.y,parts:[]};lines.push(line);}line.parts.push(g);}
+ return lines.sort((a,b)=>b.y-a.y).map(line=>line.parts.sort((a,b)=>a.x-b.x).map(p=>p.s).join(' ').replace(/\s+/g,' ').trim()).filter(Boolean);
+}
+function pdfSberTransaction(group){
+ // A transaction normally begins with a transaction date, followed by description and amounts.
+ const dateMatch=group.match(/(?:^|\s)(\d{2}[./-]\d{2}[./-]\d{4})(?=\s|$)/);
+ if(!dateMatch)return null;
+ const date=parseBankDate(dateMatch[1]);if(!date)return null;
+ const rest=group.replace(/\b\d{2}[./-]\d{2}[./-]\d{4}\b/g,' ').replace(/\b\d{2}:\d{2}(?::\d{2})?\b/g,' ');
+ if(/^\s*(?:итого|остаток|всего|сумма по|дата формирования|выписка)/i.test(rest))return null;
+ // Ignore year/month/date and integer totals: accept monetary values with two fractional digits only.
+ const amounts=[...rest.matchAll(/(^|[\s(])([+\-−–]?\s*(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)[,.]\d{2})(?=$|[^\d,.])/g)].map(m=>({raw:m[2],whole:m[0],n:numberFromText(m[2].replace(/[−–]/g,'-'))})).filter(a=>a.n!==null && a.n!==0);
+ if(!amounts.length)return null;
+ const selected=amounts.find(a=>/^[+\-−–]/.test(a.raw.trim()))||amounts[0];
+ const positive=selected.n>0;
+ const isIncome=/зачислен|поступлен|пополнен|возврат|зарплат|к[еэ]шб[еэ]к|процент на остаток|внесени/i.test(rest) || selected.raw.trim().startsWith('+');
+ const isTransfer=/перевод между своими|между своими счетами|перевод собственных средств/i.test(rest);
+ let type=isTransfer?'Перевод между своими':isIncome?'Поступление':(!positive?'Списание':/оплат|покупк|комисси|списан|перевод|снят/i.test(rest)?'Списание':'Не определено');
+ // For amount without minus, Sber often presents spending as unsigned; default to expense but show review.
+ let title=rest.replace(/(^|[\s(])([+\-−–]?\s*(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)[,.]\d{2})(?=$|[^\d,.])/g,' ').replace(/\b(?:RUB|RUR|РУБ|рублей)\b|₽/ig,' ').replace(/\s+/g,' ').trim();
+ if(title.length<3)title='Операция Сбербанка';
+ title=title.slice(0,180);
+ const signed=(type==='Поступление'?Math.abs(selected.n):type==='Списание'?-Math.abs(selected.n):selected.n);
+ return [date,title,signed.toFixed(2).replace('.',','),type,title];
+}
+function pdfSberRows(lines){
+ const out=[];let group='';let fragments=0;
+ const flush=()=>{if(!group)return;const row=pdfSberTransaction(group);if(row)out.push(row);group='';fragments=0;};
+ for(const line of lines){
+  const beginsDate=/^\s*\d{2}[./-]\d{2}[./-]\d{4}(?=\s|$)/.test(line);
+  if(beginsDate){flush();group=line;fragments=1;}
+  else if(group && fragments<5 && !/^\s*(?:итого|остаток|продолжение|выписка|баланс|номер документа)/i.test(line)) {group+=' '+line;fragments++;}
+  else if(group){flush();}
+ }
+ flush();return out;
+}
+async function handleSberPdf(file){
+ if(!/\.pdf$/i.test(file.name) && file.type!=='application/pdf')throw new Error('Выберите PDF-выписку Сбербанка');
+ if(file.size>20*1024*1024)throw new Error('Для PDF максимальный размер 20 МБ');
+ const lib=await pdfJs();
+ const bytes=new Uint8Array(await file.arrayBuffer());
+ const task=lib.getDocument({data:bytes,isEvalSupported:false,useSystemFonts:true,stopAtErrors:false});
+ let documentPdf;
+ try{
+  documentPdf=await task.promise;
+  if(documentPdf.numPages>75)throw new Error('В PDF слишком много страниц (максимум 75)');
+  const rows=[];
+  for(let pageNo=1;pageNo<=documentPdf.numPages;pageNo++){
+   const page=await documentPdf.getPage(pageNo);
+   const text=await page.getTextContent();
+   rows.push(...pdfSberRows(pdfTextLines(text.items)));
+   page.cleanup();
+  }
+  if(!rows.length)throw new Error('Не найдены операции. Убедитесь, что это PDF-выписка с текстом, а не скан.');
+  importDraft={mode:'sber-pdf',headers:['Дата операции','Описание','Сумма','Тип операции','Категория'],rows:rows.slice(0,10000),filename:file.name};
+  csvPreview();
+  $('#importPositive').value='expense';
+  notify('Предварительно распознано операций: '+rows.length);
+ }catch(e){
+  if(e?.name==='PasswordException')throw new Error('PDF защищён паролем. Сохраните незашифрованную выписку в СберБанк Онлайн.');
+  throw e;
+ }finally{await documentPdf?.destroy();}
 }
 function toB64(uint8){let str='';const size=8192;for(let i=0;i<uint8.length;i+=size)str+=String.fromCharCode(...uint8.subarray(i,i+size));return btoa(str);}
 function fromB64(s){const raw=atob(s);return Uint8Array.from(raw,c=>c.charCodeAt(0));}
@@ -300,7 +495,7 @@ async function restoreFromFile(file,password){
 }
 function setBusy(b){isBusy=b;$$('.sheet button[type=submit]').forEach(x=>x.disabled=b);}
 async function handleSubmit(event){
- const form=event.target;if(!['transactionForm','budgetForm','debtForm','importForm','exportForm','restoreForm'].includes(form.id))return;
+ const form=event.target;if(!['transactionForm','budgetForm','debtForm','subscriptionForm','importForm','exportForm','restoreForm'].includes(form.id))return;
  event.preventDefault();if(isBusy)return;setBusy(true);
  try{
   const data=new FormData(form);
@@ -319,13 +514,27 @@ async function handleSubmit(event){
   }else if(form.id==='debtForm'){
    const name=String(data.get('name')||'').trim(),balance=Number(data.get('balance')),rate=Number(data.get('rate')),payment=Number(data.get('payment'));
    if(!name||[balance,rate,payment].some(n=>!Number.isFinite(n)||n<0))throw new Error('Проверьте данные кредита');
-   const existing=state.debts.find(x=>x.id===form.dataset.id);const debt={id:existing?.id||uid(),name,balance,rate,payment};
+   const dueDay=Number(data.get('dueDay')||0);
+   if(dueDay && (!Number.isInteger(dueDay)||dueDay<1||dueDay>31))throw new Error('День платежа должен быть от 1 до 31');
+   const kind=String(data.get('kind')||'loan');if(!['mortgage','loan','creditcard','other'].includes(kind))throw new Error('Неизвестный тип кредита');
+   const existing=state.debts.find(x=>x.id===form.dataset.id);const debt={id:existing?.id||uid(),name,kind,lender:String(data.get('lender')||'').slice(0,100),balance,rate,payment,dueDay,balanceDate:parseBankDate(data.get('balanceDate'))||'',notes:String(data.get('notes')||'').slice(0,350)};
    if(existing)Object.assign(existing,debt);else state.debts.push(debt);
    await commit();closeModal();notify('Кредит сохранён');
+  }else if(form.id==='subscriptionForm'){
+   const name=String(data.get('name')||'').trim(),amount=Number(data.get('amount')),cycle=String(data.get('cycle')),status=String(data.get('status'));
+   if(!name||!(amount>0)||!Number.isFinite(amount)||!CYCLE_LABEL[cycle]||!['active','paused','cancelled'].includes(status))throw new Error('Проверьте название, цену и период');
+   const nextDate=String(data.get('nextDate')||'');if(nextDate&&!parseBankDate(nextDate))throw new Error('Укажите корректную дату');
+   const existing=state.subscriptions.find(x=>x.id===form.dataset.id);
+   const subscription={id:existing?.id||uid(),name:name.slice(0,120),amount,cycle,nextDate,status,source:form.dataset.source==='statement'?'statement':'manual',matchKey:String(form.dataset.key||'').slice(0,120),notes:String(data.get('notes')||'').slice(0,250)};
+   if(existing)Object.assign(existing,subscription);else state.subscriptions.push(subscription);
+   await commit();closeModal();notify('Подписка сохранена');
   }else if(form.id==='importForm'){
    const incoming=collectImport();if(!incoming.length)throw new Error('Не удалось найти подходящие операции. Проверьте колонки и формат дат.');
-   const existing=new Set(state.transactions.map(fingerprint));let skipped=0;
-   for(const tx of incoming){const fingerprintValue=fingerprint(tx);if(existing.has(fingerprintValue)){skipped++;continue;}existing.add(fingerprintValue);state.transactions.push(tx);}
+   // Count duplicates rather than collapsing two identical legitimate purchases on one day.
+   const oldCounts=new Map();for(const tx of state.transactions){const key=fingerprint(tx);oldCounts.set(key,(oldCounts.get(key)||0)+1);}
+   const incomingCounts=new Map();let skipped=0;
+   for(const tx of incoming){const key=fingerprint(tx);const seen=(incomingCounts.get(key)||0)+1;incomingCounts.set(key,seen);
+    if(seen <= (oldCounts.get(key)||0)){skipped++;continue;}state.transactions.push(tx);}
    await commit();closeModal();const added=incoming.length-skipped;notify(`Импортировано: ${added}; совпадений пропущено: ${skipped}`);activeTab='transactions';render();
    importDraft=null;
   }else if(form.id==='exportForm'){
@@ -351,6 +560,11 @@ async function handleAction(event){
  else if(action==='add-budget')openBudget();
  else if(action==='edit-budget')openBudget(id);
  else if(action==='add-debt')openDebt();
+ else if(action==='view-debts')activateTab('debts');
+ else if(action==='view-subscriptions')activateTab('subscriptions');
+ else if(action==='add-subscription')openSubscription();
+ else if(action==='edit-subscription')openSubscription(id);
+ else if(action==='confirm-subscription'){const candidate=proposedSubscriptions()[Number(b.dataset.index)];if(candidate)openSubscription('',candidate);}
  else if(action==='edit-debt')openDebt(id);
  else if(action==='view-transactions')activateTab('transactions');
  else if(action==='filter'){transactionFilter=b.dataset.value;render();}
@@ -358,14 +572,16 @@ async function handleAction(event){
    const kind=b.dataset.value;$('#transactionType').value=kind;$$('.type-toggle button').forEach(btn=>btn.classList.toggle('active',btn.dataset.value===kind));
    $('#transactionCategory').innerHTML=catOptions(kind);
  }
- else if(action==='delete-tx'||action==='delete-budget'||action==='delete-debt'){
+ else if(action==='delete-tx'||action==='delete-budget'||action==='delete-debt'||action==='delete-subscription'){
    if(!confirm('Удалить эту запись?'))return;
    if(action==='delete-tx')state.transactions=state.transactions.filter(x=>x.id!==id);
    if(action==='delete-budget')delete state.budgets[id];
    if(action==='delete-debt')state.debts=state.debts.filter(x=>x.id!==id);
+   if(action==='delete-subscription')state.subscriptions=state.subscriptions.filter(x=>x.id!==id);
    await commit();closeModal();notify('Запись удалена');
  }
  else if(action==='import-csv'){$('#csvFile').click();}
+ else if(action==='import-sber'){$('#sberPdfFile').click();}
  else if(action==='preview-import'){
    try{const tx=collectImport(),preview=tx.slice(0,7).map(x=>`<p>${esc(x.date)} · ${esc(x.title)} · ${x.type==='income'?'+':x.type==='expense'?'−':'↔'}${money(x.amount)}</p>`).join('');$('#importPreview').innerHTML=`<div class="subtle">Распознано ${tx.length} операций из ${importDraft.rows.length} строк:</div>${preview||'<p>Нет распознанных строк — проверьте колонки</p>'}`;}
    catch(e){notify(e.message);}
@@ -373,7 +589,7 @@ async function handleAction(event){
  else if(action==='export-backup')openExport();
  else if(action==='restore-backup')$('#backupFile').click();
  else if(action==='clear-all'){
-   if(!confirm('Удалить все операции, кредиты и бюджеты с этого iPhone? Действие необратимо.'))return;
+   if(!confirm('Удалить все операции, кредиты, подписки и бюджеты с этого iPhone? Действие необратимо.'))return;
    if(!confirm('Подтвердите удаление ВСЕХ финансовых записей.'))return;
    state=DEFAULT_STATE();await commit();notify('Локальные данные удалены');
  }
@@ -391,6 +607,9 @@ async function start(){
   transactionSearch=event.target.value;const position=event.target.selectionStart;render();const input=$('#transactionSearch');input.focus();input.setSelectionRange(position,position);
  }});
  $('#csvFile').addEventListener('change',async event=>{const file=event.target.files?.[0];event.target.value='';if(file)try{await handleCsv(file);}catch(e){notify(e.message||'Не удалось прочитать файл');}});
+ $('#sberPdfFile').addEventListener('change',async event=>{const file=event.target.files?.[0];event.target.value='';if(!file)return;
+  try{notify('Читаем PDF на iPhone — без отправки на сервер');await handleSberPdf(file);}catch(e){console.error(e);notify(e?.message||'Ошибка чтения PDF');}
+ });
  $('#backupFile').addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';if(file)openRestore(file);});
  if(storageFallback)notify('Доступно только резервное локальное хранение. Делайте копии чаще.');
  if('serviceWorker' in navigator && location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW registration failed',e));
