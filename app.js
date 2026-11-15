@@ -21,7 +21,8 @@ const CATEGORY_DEFAULTS = [
   {id:'other-income',name:'Другие поступления',icon:'✨',color:'#c4d3b3',kind:'income'},
   {id:'transfer',name:'Перевод между счетами',icon:'↔️',color:'#8393a6',kind:'transfer'}
 ];
-const DEFAULT_STATE = () => ({version:3,transactions:[],budgets:{},debts:[],subscriptions:[],savings:[],categories:structuredCloneSafe(CATEGORY_DEFAULTS)});
+const APP_VERSION = '1.5.0';
+const DEFAULT_STATE = () => ({version:4,transactions:[],budgets:{},budgetMonths:{},budgetPlans:{},debts:[],subscriptions:[],savings:[],categories:structuredCloneSafe(CATEGORY_DEFAULTS)});
 let state = DEFAULT_STATE();
 let db = null;
 let storageFallback = false;
@@ -29,6 +30,7 @@ let activeTab = 'home';
 let activeMonth = monthNow();
 let transactionFilter = 'all';
 let transactionSearch = '';
+let transactionCategoryFilter = '';
 let importDraft = null;
 let subscriptionCandidatesHidden = false;
 let isBusy = false;
@@ -49,12 +51,13 @@ function dateView(value){const d=new Date(`${value}T12:00:00`);return Number.isN
 function getCategory(id){return state.categories.find(c=>c.id===id) || {name:'Без категории',icon:'📄',color:'#8393a6',kind:'expense'};}
 function catOptions(kind, selected){return state.categories.filter(c=>c.kind===kind).map(c=>`<option value="${esc(c.id)}" ${c.id===selected?'selected':''}>${esc(c.icon)} ${esc(c.name)}</option>`).join('');}
 function normalizeState(input){
-  if(!input || typeof input!=='object' || !Array.isArray(input.transactions) || !Array.isArray(input.debts) || typeof input.budgets!=='object') throw new Error('Неверный формат резервной копии');
+  if(!input || typeof input!=='object' || !Array.isArray(input.transactions) || !Array.isArray(input.debts) || !input.budgets || typeof input.budgets!=='object' || Array.isArray(input.budgets)) throw new Error('Неверный формат резервной копии');
   const cats=Array.isArray(input.categories)?input.categories:CATEGORY_DEFAULTS;
   const keptCats=cats.filter(c=>c && typeof c.id==='string' && typeof c.name==='string' && ['expense','income','transfer'].includes(c.kind)).slice(0,150);
   for(const cat of CATEGORY_DEFAULTS){if(!keptCats.some(c=>c.id===cat.id))keptCats.push(structuredCloneSafe(cat));}
   return {
-    version:3,
+    version:4,
+    ...FinanceInsights.normalizePlanning(input),
     categories:keptCats,
     transactions:input.transactions.filter(x=>x && typeof x.date==='string' && ['expense','income','transfer'].includes(x.type) && Number.isFinite(Number(x.amount))).slice(0,100000).map(x=>({id:String(x.id||uid()),type:x.type,date:x.date,title:String(x.title||'Операция').slice(0,250),amount:Math.abs(Number(x.amount)),category:String(x.category||'other-expense'),account:String(x.account||'').slice(0,80),source:String(x.source||'manual').slice(0,80),sourceRef:String(x.sourceRef||'').slice(0,180),bankCategory:String(x.bankCategory||'').slice(0,100),transactionTime:String(x.transactionTime||'').slice(0,8),savingsFlow:[-1,1].includes(Number(x.savingsFlow))?Number(x.savingsFlow):0,savingsId:String(x.savingsId||'').slice(0,100)})),
     debts:input.debts.filter(x=>x && typeof x.name==='string').slice(0,100).map(x=>({
@@ -109,8 +112,8 @@ function txList(items,limit=1000){
   return `<div class="trans-list">${items.slice(0,limit).map(tx=>{const c=getCategory(tx.category);return `<div class="trans-row"><div class="cat-icon" aria-hidden="true">${esc(c.icon)}</div><div class="trans-info"><div class="trans-title">${esc(tx.title)}</div><div class="trans-meta">${dateView(tx.date)} · ${esc(c.name)}${tx.account?' · '+esc(tx.account):''}</div></div><div class="trans-amount ${tx.type==='income'?'positive':tx.type==='expense'?'negative':''}">${tx.type==='income'?'+':tx.type==='expense'?'−':''}${money(tx.amount)}</div><button class="trans-edit" data-action="edit-tx" data-id="${esc(tx.id)}" aria-label="Редактировать операцию">⋯</button></div>`;}).join('')}</div>`;
 }
 function renderHome(){
-  const {income,expense}=monthTotals();const net=income-expense;
-  const byCat=totalsByCategory();
+  const analysis=financeAnalysis();const {income,expense}=analysis;const net=income-expense;
+  const byCat=Object.entries(analysis.byCategory).map(([id,amount])=>({id,amount,category:getCategory(id)})).sort((a,b)=>b.amount-a.amount);
   let progress=0;const segment=byCat.slice(0,5).map((c,i)=>{const start=progress;progress+=100*c.amount/Math.max(expense,1);return {c,start,finish:progress,color:c.category.color};});
   const debtDue=state.debts.filter(d=>d.balance>0).reduce((a,d)=>a+d.payment,0);
   const subDue=state.subscriptions.filter(x=>x.status==='active').reduce((a,x)=>a+subscriptionMonthly(x),0);
@@ -119,6 +122,8 @@ function renderHome(){
   return heading('Обзор')+monthBar()+`
   <section class="hero"><div class="hero-label">Чистый итог за месяц</div><div class="hero-value">${net>=0?'+':'−'}${money(Math.abs(net))}</div><span class="pill">${net>=0?'↗ Доходы выше расходов':'↘ Расходы выше доходов'}</span><div class="hero-foot small-top">Разница между доходами и расходами, не баланс банковского счёта</div></section>
   <div class="two-col"><div class="metric-card"><div class="metric-head"><span class="metric-symbol in">↙</span>Доходы</div><div class="metric-value">${short(income)}</div></div><div class="metric-card"><div class="metric-head"><span class="metric-symbol out">↗</span>Расходы</div><div class="metric-value">${short(expense)}</div></div></div>
+  ${renderAnalytics(analysis)}
+  ${renderBudgetTeaser(analysis)}
   ${sectionHeader('Куда уходят деньги',byCat.length?'Все операции':'','view-transactions')}
   <div class="panel">${byCat.length?`<div class="chart-wrap"><div class="donut" role="img" aria-label="Расходы по категориям" style="background:${gradient}"><div class="donut-center"><div><b>${short(expense)}</b><span>всего расходов</span></div></div></div><div class="legend">${legend}</div></div>`:empty('◔','Категории появятся здесь','Когда добавите расходы, покажем их распределение.')}</div>
   ${sectionHeader('Регулярные обязательства')}
@@ -131,16 +136,12 @@ function renderHome(){
 function renderTransactions(){
   let all=monthTx().sort((a,b)=>b.date.localeCompare(a.date)||String(b.id).localeCompare(String(a.id)));
   if(transactionFilter!=='all')all=all.filter(x=>x.type===transactionFilter);
+  if(transactionCategoryFilter)all=all.filter(x=>x.category===transactionCategoryFilter);
   if(transactionSearch){const search=transactionSearch.toLocaleLowerCase('ru-RU');all=all.filter(x=>`${x.title} ${x.account} ${getCategory(x.category).name} ${x.amount}`.toLocaleLowerCase('ru-RU').includes(search));}
-  return heading('Операции','ИСТОРИЯ',`<button class="secondary-btn" data-action="import-csv">Импорт</button>`)+monthBar()+`<input id="transactionSearch" type="search" class="search-input" placeholder="Поиск по операциям" autocomplete="off" value="${esc(transactionSearch)}" aria-label="Поиск операций"><div class="filter-row">${[['all','Все'],['expense','Расходы'],['income','Доходы'],['transfer','Переводы']].map(([id,name])=>`<button class="filter ${transactionFilter===id?'active':''}" type="button" data-action="filter" data-value="${id}">${name}</button>`).join('')}</div><p class="subtle">Найдено: ${all.length} · ${money(all.filter(x=>x.type==='expense').reduce((n,x)=>n+x.amount,0))} расходов</p>${txList(all)}<button type="button" data-action="add-tx" class="primary-btn wide small-top">+ Добавить операцию</button>`;
+  return heading('Операции','ИСТОРИЯ',`<button class="secondary-btn" data-action="import-csv">Импорт</button>`)+monthBar()+`${transactionCategoryFilter?`<button class="category-filter" type="button" data-action="clear-category-filter">${esc(getCategory(transactionCategoryFilter).name)} <span aria-hidden="true">✕</span><span class="sr-only">Сбросить категорию</span></button>`:''}<input id="transactionSearch" type="search" class="search-input" placeholder="Поиск по операциям" autocomplete="off" value="${esc(transactionSearch)}" aria-label="Поиск операций"><div class="filter-row">${[['all','Все'],['expense','Расходы'],['income','Доходы'],['transfer','Переводы']].map(([id,name])=>`<button class="filter ${transactionFilter===id?'active':''}" type="button" data-action="filter" data-value="${id}">${name}</button>`).join('')}</div><p class="subtle">Найдено: ${all.length} · ${money(all.filter(x=>x.type==='expense').reduce((n,x)=>n+x.amount,0))} расходов</p>${txList(all)}<button type="button" data-action="add-tx" class="primary-btn wide small-top">+ Добавить операцию</button>`;
 }
 function renderBudgets(){
-  const byCat=Object.fromEntries(totalsByCategory().map(x=>[x.id,x.amount]));
-  const budgets=Object.entries(state.budgets).filter(([k,v])=>validNumber(v)>0&&getCategory(k).kind==='expense');
-  const total=budgets.reduce((n,[k,v])=>n+v,0);
-  const spent=budgets.reduce((n,[k,v])=>n+(byCat[k]||0),0);
-  return heading('Бюджеты','ПЛАН И ФАКТ',`<button class="secondary-btn" data-action="add-budget">+ Лимит</button>`)+monthBar()+`<div class="hero"><div class="hero-label">Бюджет на месяц</div><div class="hero-value">${short(total)}</div><div class="hero-foot">Использовано ${short(spent)} · Осталось ${short(total-spent)}</div></div>${sectionHeader('Лимиты по категориям')}
-  <div class="panel">${budgets.length?budgets.map(([id,limit])=>{const c=getCategory(id),v=byCat[id]||0,p=100*v/limit;return `<div class="budget-row"><div class="budget-line"><span class="budget-name">${esc(c.icon)} ${esc(c.name)}</span><button type="button" data-action="edit-budget" data-id="${esc(id)}" class="text-link">Изменить</button></div><div class="progress"><i class="${p>=100?'over':p>=80?'warn':''}" style="width:${Math.max(0,Math.min(100,p))}%"></i></div><div class="progress-caption"><span>Потрачено ${short(v)}</span><span>${Math.round(p)}% из ${short(limit)}</span></div></div>`;}).join(''):empty('◎','Лимитов пока нет','Задайте бюджет для продуктов, дома, автомобиля или любой другой категории.','Создать лимит','add-budget')}</div><p class="footnote">Лимиты повторяются каждый месяц. Расходы считаются по дате операции.</p>`;
+  return renderBudgetPage();
 }
 function debtForecast(d){
  const balance=d.balance,p=d.payment,rate=d.rate/1200;
@@ -255,8 +256,8 @@ function renderSettings(){
   <div class="setting-card"><h3>Импорт CSV</h3><p>Для Сбербанка, Т-Банка и других банков: загрузите CSV-файл. Выберите колонки и проверьте операции перед сохранением.</p><button type="button" data-action="import-csv" class="secondary-btn">Загрузить CSV</button></div>
  <div class="setting-card"><h3>Резервная копия</h3><p>Сохраните зашифрованную копию всех операций, бюджетов, кредитов и подписок в «Файлы». Пароль нужен для восстановления — мы его не храним.</p><button type="button" data-action="export-backup" class="secondary-btn">Создать копию</button><button type="button" data-action="restore-backup" class="secondary-btn">Восстановить</button></div>
  <div class="setting-card"><h3>Установка на iPhone</h3><p>Откройте опубликованную ссылку в Safari → «Поделиться» → «На экран Домой» → «Открывать как веб-приложение». После первого запуска основные функции работают без интернета.</p></div>
- <div class="setting-card"><h3>Статистика</h3><p>Операций: ${state.transactions.length}. Активных лимитов: ${Object.keys(state.budgets).length}. Кредитов: ${state.debts.length}. Подписок: ${state.subscriptions.length}.</p><button type="button" class="danger-btn" data-action="clear-all">Удалить все данные</button></div>
- <div class="footnote">Мои Финансы v1.4 · ₽ · Без рекламы и аналитики. Чтобы не потерять записи, регулярно сохраняйте резервную копию в безопасном месте. Публикация кода приложения не публикует ваши финансовые операции.</div></div>`;
+ <div class="setting-card"><h3>Статистика</h3><p>Операций: ${state.transactions.length}. Лимитов в выбранном месяце: ${Object.keys(FinanceInsights.limitsFor(state,activeMonth)).length}. Кредитов: ${state.debts.length}. Подписок: ${state.subscriptions.length}.</p><button type="button" class="danger-btn" data-action="clear-all">Удалить все данные</button></div>
+ <div class="footnote">Мои Финансы v${APP_VERSION} · ₽ · Без рекламы и отслеживания. Чтобы не потерять записи, регулярно сохраняйте резервную копию в безопасном месте. Публикация кода приложения не публикует ваши финансовые операции.</div></div>`;
 }
 function render(){
  const pages={home:renderHome,transactions:renderTransactions,budgets:renderBudgets,debts:renderDebts,savings:renderSavings,subscriptions:renderSubscriptions,settings:renderSettings};
@@ -275,10 +276,7 @@ function openTx(id){
  openModal(tx?'Редактировать операцию':'Новая операция',contents);
 }
 function openBudget(id){
- const selected=id||state.categories.find(c=>c.kind==='expense')?.id;
- const budget=state.budgets[selected]||'';
- openModal(id?'Изменить лимит':'Новый бюджет',`<form id="budgetForm" data-old-id="${esc(id||'')}"><div class="field"><label>Категория расходов</label><select name="category" id="budgetCategory">${catOptions('expense',selected)}</select></div>${formField('limit','Лимит в месяц, ₽','number',budget,'Например, 20000','required')}<p class="subtle">Один и тот же лимит используется каждый месяц.</p><div class="form-actions"><button type="submit" class="primary-btn">Сохранить</button>${id?`<button type="button" data-action="delete-budget" data-id="${esc(id)}" class="danger-btn">Удалить</button>`:''}</div></form>`);
- $('#budgetCategory').addEventListener('change',event=>{$('#f-limit').value=state.budgets[event.target.value]||'';});
+ openBudgetEditor(id);
 }
 function openDebt(id){
  const debt=state.debts.find(d=>d.id===id);
@@ -849,7 +847,7 @@ async function restoreFromFile(file,password){
 }
 function setBusy(b){isBusy=b;$$('.sheet button[type=submit]').forEach(x=>x.disabled=b);}
 async function handleSubmit(event){
- const form=event.target;if(!['transactionForm','budgetForm','debtForm','subscriptionForm','importForm','creditPdfForm','mortgageScheduleForm','sberFullImportForm','savingForm','exportForm','restoreForm'].includes(form.id))return;
+ const form=event.target;if(!['transactionForm','budgetForm','monthPlanForm','autoBudgetForm','debtForm','subscriptionForm','importForm','creditPdfForm','mortgageScheduleForm','sberFullImportForm','savingForm','exportForm','restoreForm'].includes(form.id))return;
  event.preventDefault();if(isBusy)return;setBusy(true);
  try{
   const data=new FormData(form);
@@ -860,11 +858,8 @@ async function handleSubmit(event){
    const tx={id:existing?.id||uid(),type,amount,title,date,category:data.get('category')||'other-expense',account:String(data.get('account')||'').trim(),source:existing?.source||'manual'};
    if(existing)Object.assign(existing,tx);else state.transactions.push(tx);
    await commit();closeModal();notify('Операция сохранена');
-  }else if(form.id==='budgetForm'){
-   const category=String(data.get('category'));const limit=Number(data.get('limit'));
-   if(!(limit>0)||!state.categories.some(c=>c.id===category&&c.kind==='expense'))throw new Error('Укажите категорию и лимит больше нуля');
-   if(form.dataset.oldId&&form.dataset.oldId!==category)delete state.budgets[form.dataset.oldId];
-   state.budgets[category]=limit;await commit();closeModal();notify('Лимит установлен');
+  }else if(['budgetForm','monthPlanForm','autoBudgetForm'].includes(form.id)){
+   await savePlanningForm(form,data);
   }else if(form.id==='debtForm'){
    const name=String(data.get('name')||'').trim(),balance=Number(data.get('balance')),rate=Number(data.get('rate')),payment=Number(data.get('payment'));
    if(!name||[balance,rate,payment].some(n=>!Number.isFinite(n)||n<0))throw new Error('Проверьте данные кредита');
@@ -926,6 +921,13 @@ async function handleAction(event){
  else if(action==='edit-tx')openTx(id);
  else if(action==='add-budget')openBudget();
  else if(action==='edit-budget')openBudget(id);
+ else if(action==='edit-month-plan')openMonthPlan();
+ else if(action==='view-budgets')activateTab('budgets');
+ else if(action==='auto-budget')openAutoBudget();
+ else if(action==='copy-budget')openAutoBudget('copy');
+ else if(action==='insight-action')handleInsight(b.dataset.index);
+ else if(action==='chart-mode'){dashboardChart=b.dataset.value==='days'?'days':'months';render();}
+ else if(action==='clear-category-filter'){transactionCategoryFilter='';render();}
  else if(action==='add-debt')openDebt();
   else if(action==='import-debt-sber')$('#sberDebtPdfFile').click();
  else if(action==='view-debts')activateTab('debts');
@@ -937,7 +939,7 @@ async function handleAction(event){
  else if(action==='edit-subscription')openSubscription(id);
  else if(action==='confirm-subscription'){const candidate=proposedSubscriptions()[Number(b.dataset.index)];if(candidate)openSubscription('',candidate);}
  else if(action==='edit-debt')openDebt(id);
- else if(action==='view-transactions')activateTab('transactions');
+ else if(action==='view-transactions'){transactionCategoryFilter='';activateTab('transactions');}
  else if(action==='filter'){transactionFilter=b.dataset.value;render();}
  else if(action==='tx-type'){
    const kind=b.dataset.value;$('#transactionType').value=kind;$$('.type-toggle button').forEach(btn=>btn.classList.toggle('active',btn.dataset.value===kind));
@@ -946,7 +948,11 @@ async function handleAction(event){
  else if(action==='delete-tx'||action==='delete-budget'||action==='delete-debt'||action==='delete-subscription'||action==='delete-saving'){
    if(!confirm('Удалить эту запись?'))return;
    if(action==='delete-tx')state.transactions=state.transactions.filter(x=>x.id!==id);
-   if(action==='delete-budget')delete state.budgets[id];
+   if(action==='delete-budget'){
+     try{const month=b.dataset.month||activeMonth;await persistPlanningChange(()=>{if(b.dataset.scope==='recurring'){delete state.budgets[id];return;}const limits={...FinanceInsights.limitsFor(state,month)};delete limits[id];state.budgetMonths[month]=limits;});closeModal();notify(b.dataset.scope==='recurring'?'Базовый лимит удалён':'Лимит удалён на выбранный месяц');}
+     catch(error){notify('Не удалось сохранить изменение');}
+     return;
+   }
    if(action==='delete-debt')state.debts=state.debts.filter(x=>x.id!==id);
    if(action==='delete-subscription')state.subscriptions=state.subscriptions.filter(x=>x.id!==id);
    if(action==='delete-saving')state.savings=state.savings.filter(x=>x.id!==id);
