@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const F = require('../insights.js');
+const R = require('../records.js');
 const categories = ['food', 'home', 'health', 'children', 'credit', 'shopping', 'leisure', 'transport', 'subscriptions', 'services', 'other-expense'].map(id => ({id, name: id, kind: 'expense'}));
 categories.push({id: 'salary', name: 'salary', kind: 'income'});
 function state(extra = {}) {return {version: 3, categories, transactions: [], budgets: {}, budgetMonths: {}, budgetPlans: {}, debts: [], subscriptions: [], savings: [], ...extra};}
@@ -72,7 +73,7 @@ test('currency calculations keep cents, and analysis never mutates the stored da
 
 function appContext() {
   const source = fs.readFileSync(require.resolve('../app.js'), 'utf8').replace(/start\(\)\.catch\([\s\S]*$/, '');
-  const context = vm.createContext({console, Intl, Date, Math, JSON, Number, String, Object, Array, Set, Map, Promise, FinanceInsights: F, globalThis: {}, document: {querySelector: () => null, querySelectorAll: () => []}});
+  const context = vm.createContext({console, Intl, Date, Math, JSON, Number, String, Object, Array, Set, Map, Promise, FinanceInsights: F, FinanceRecords: R, globalThis: {}, document: {querySelector: () => null, querySelectorAll: () => []}});
   vm.runInContext(fs.readFileSync(require.resolve('../dashboard.js'), 'utf8'), context);
   vm.runInContext(source, context);
   return context;

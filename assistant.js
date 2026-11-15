@@ -2,6 +2,7 @@
 (function (root) {
 'use strict';
 const F = root.FinanceInsights || (typeof require === 'function' ? require('./insights.js') : null);
+const R = root.FinanceRecords || (typeof require === 'function' ? require('./records.js') : null);
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 const BLOCKED = new Set(['__proto__', 'prototype', 'constructor']);
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
@@ -54,12 +55,12 @@ async function createContext(input, month, asOf, appVersion, createdAt = new Dat
   });
   const debts = (state.debts || []).map((d, index) => ({label: 'Кредит ' + (index + 1), kind: d.kind, balance: d.balance,
     rate: d.rateKnown === false ? null : d.rate, payment: d.payment, dueDay: d.dueDay, balanceDate: d.balanceDate || null,
-    balanceIsProjected: !!d.balanceIsProjected,
+    balanceIsProjected: !!d.balanceIsProjected, bankDetails: R.cleanDetails(d.bankDetails, 'debt'),
     nextPayments: (d.schedule || []).filter(row => row.date >= asOf).slice(0, 3).map(row => ({date: row.date, payment: row.payment, principal: row.principal, interest: row.interest}))}));
   const subscriptions = (state.subscriptions || []).map((s, index) => ({label: 'Подписка ' + (index + 1), amount: s.amount, cycle: s.cycle,
     monthlyEquivalent: F.monthlySubscription(s), status: s.status, nextDate: s.nextDate || null}));
   const savings = (state.savings || []).map((s, index) => ({label: 'Накопления ' + (index + 1), kind: s.kind, balance: s.balance ?? null,
-    rate: s.rate ?? null, balanceDate: s.balanceDate || null, maturity: s.maturity || null}));
+    rate: s.rate ?? null, balanceDate: s.balanceDate || null, maturity: s.maturity || null, bankDetails: R.cleanDetails(s.bankDetails, 'saving')}));
   const context = {
     type: 'moi-finansy-assistant-context', version: 1, appVersion, createdAt, month, asOf, currency: 'RUB',
     snapshotId: await fingerprint(state, month, asOf),

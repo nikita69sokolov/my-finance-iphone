@@ -12,6 +12,7 @@ function renderAssistant() {
       <section class="setting-card assistant-step"><span class="assistant-number">1</span><h3>Подготовить данные</h3><p>В сводке: история по категориям за 6 месяцев, планы на выбранный и следующий месяц, параметры кредитов, накоплений и подписок. Названия операций, счетов, банков, договоров и заметки не включаются. Кредиты и подписки обозначены номерами.</p><button class="primary-btn wide" type="button" data-action="assistant-export">Подготовить сводку</button></section>
       <section class="setting-card assistant-step"><span class="assistant-number">2</span><h3>Получить рекомендации</h3><p>Сохрани сводку в «Файлы» или открой меню «Поделиться». Затем прикрепи файл в этот чат ChatGPT и попроси анализ и план для «Моих Финансов».</p><a class="secondary-btn wide" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Открыть ChatGPT</a></section>
       <section class="setting-card assistant-step"><span class="assistant-number">3</span><h3>Вернуть план в приложение</h3><p>Загрузи файл плана из ответа ChatGPT или вставь его текст. Сначала увидишь каждое изменение. Сохраняются только проверенные тобой планы доходов, накоплений и лимиты.</p><button class="secondary-btn wide" type="button" data-action="assistant-import">Загрузить план</button><button class="text-link wide" type="button" data-action="assistant-paste">Вставить текст плана</button></section>
+      <section class="setting-card"><h3>Кредит и накопления из скриншотов</h3><p>Получи в ChatGPT файл с данными банка и загрузи его здесь. Выбери, создать новые записи или обновить существующие. Все суммы будут показаны до сохранения.</p><button class="secondary-btn wide" type="button" data-action="bank-records-import">Загрузить кредит и накопления</button></section>
     </div>
     <div class="notice small-top">Сводка содержит финансовые суммы и не зашифрована. Ты сам выбираешь, куда её отправить. Подготовка файла ничего не отправляет. Это анализ внесённых записей, а не доступ к банку или постоянная синхронизация.</div>`;
 }
@@ -36,6 +37,7 @@ function openAssistantPaste() {
 }
 async function previewAssistantPlan(raw) {
   const input = FinanceAssistant.parsePlan(raw);
+  if(input.type==='moi-finansy-bank-records'){await previewBankRecords(raw);return;}
   const prepared = await FinanceAssistant.preparePlan(input, state, today());
   assistantDraft = prepared.plan;
   const rows = prepared.changes.map(change => `<div class="assistant-change"><span>${esc(monthLabel(change.month))} · ${esc(change.label)}</span><div><span>${assistantDisplayAmount(change.before)}</span><b aria-hidden="true">→</b><strong>${assistantDisplayAmount(change.after)}</strong></div></div>`).join('');

@@ -88,3 +88,7 @@
 .assistant-change>div{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;margin-top:8px;font-size:14px;font-variant-numeric:tabular-nums}
 .assistant-change>div>span{color:var(--muted)}.assistant-change b{color:#94abbd}.assistant-change strong{color:var(--accent)}
 @media(max-width:360px){.assistant-hero h2{font-size:26px}.assistant-facts{gap:12px;padding:13px}.assistant-change>div{gap:8px}}
+
+.bank-record-line{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #ffffff0e;font-size:12px;line-height:1.55}
+.bank-record-line>span{color:var(--muted);max-width:65%;overflow-wrap:anywhere}.bank-record-line>strong{text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.bank-observation{margin-top:14px;border-top:1px solid var(--border);padding-top:4px}.bank-observation summary{min-height:44px;padding:13px 0;color:var(--accent);font-size:12px;cursor:pointer}.bank-observation .subtle{margin-bottom:0}
