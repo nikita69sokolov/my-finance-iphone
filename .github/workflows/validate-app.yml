@@ -6,6 +6,8 @@ on:
       - app.js
       - insights.js
       - dashboard.js
+      - assistant.js
+      - assistant-ui.js
       - import-v14.js
       - tests/**
       - index.html
@@ -29,6 +31,8 @@ jobs:
           node --check app.js
           node --check insights.js
           node --check dashboard.js
+          node --check assistant.js
+          node --check assistant-ui.js
           node --check import-v14.js
           node --check sw.js
           test -s index.html

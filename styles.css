@@ -68,3 +68,23 @@
 .category-filter{display:flex;align-items:center;gap:10px;color:var(--accent2);border:1px solid #396050;background:#1d3b32;border-radius:24px;padding:11px 15px;margin-bottom:14px;font-size:12px;min-height:44px}
 @media(max-width:390px){.analytics-heading{align-items:flex-start;flex-direction:column;gap:0}.chart-tabs{align-self:flex-end;margin-top:-6px;margin-bottom:8px}.chart-axis{font-size:20px}.budget-tools .secondary-btn{padding-left:10px;padding-right:10px}.plan-summary>.text-link{width:100%;text-align:left;padding:0;min-height:28px}.budget-hero-caption strong{font-size:12px}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* ChatGPT assistant: compact local exchange, with readable previews on iPhone. */
+.assistant-teaser{background:linear-gradient(110deg,#202d45,#183d35);border-color:#42665e}
+.assistant-hero h2{font-size:30px;line-height:1.2;letter-spacing:-.7px;margin:18px 0 12px}
+.assistant-hero p{font-size:13px;color:#c2dcd2;line-height:1.65;margin:0}
+.assistant-step{position:relative;padding-top:20px}.assistant-step h3{padding-right:35px;line-height:1.5}
+.assistant-number{position:absolute;right:16px;top:17px;background:#244d40;color:var(--accent);border-radius:10px;width:28px;height:28px;display:grid;place-items:center;font-size:13px;font-weight:750}
+.assistant-step>a{text-decoration:none}.assistant-step .wide{margin-right:0}
+.assistant-facts{display:grid;grid-template-columns:1fr 1fr;gap:14px;border:1px solid var(--border);border-radius:16px;padding:16px}
+.assistant-facts span{display:block;color:var(--muted);font-size:11px;margin-bottom:7px}.assistant-facts strong{font-size:14px;font-variant-numeric:tabular-nums}
+.assistant-label{display:block;color:#b4c4d0;font-size:12px;font-weight:650;margin:20px 0 9px}
+.assistant-text{display:block;width:100%;min-height:140px;border:1px solid #344b60;border-radius:14px;background:#0b1626;color:var(--text);padding:13px;font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;resize:vertical;overflow-wrap:anywhere}
+.assistant-text:focus{border-color:var(--accent);outline:2px solid #64e3b930;outline-offset:2px}
+.assistant-details{font-size:12px;color:var(--muted);margin-top:14px}.assistant-details summary{padding:12px 0;cursor:pointer;min-height:44px}
+.assistant-details pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;background:#0b1626;border-radius:13px;padding:12px;font-size:11px;line-height:1.6}
+.assistant-changes{margin:17px 0}.assistant-change{padding:13px 0;border-bottom:1px solid var(--border)}
+.assistant-change>span{font-size:12px;line-height:1.5;display:block;overflow-wrap:anywhere}
+.assistant-change>div{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;margin-top:8px;font-size:14px;font-variant-numeric:tabular-nums}
+.assistant-change>div>span{color:var(--muted)}.assistant-change b{color:#94abbd}.assistant-change strong{color:var(--accent)}
+@media(max-width:360px){.assistant-hero h2{font-size:26px}.assistant-facts{gap:12px;padding:13px}.assistant-change>div{gap:8px}}
