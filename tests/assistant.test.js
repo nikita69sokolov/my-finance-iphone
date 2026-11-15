@@ -122,7 +122,7 @@ test('JSON plans accept fenced text, reject prose and limit payload size', async
 function appContext() {
   const ctx = vm.createContext({console, Intl, Date, Math, JSON, Number, String, Object, Array, Set, Map, Promise, TextEncoder, Uint8Array, File, crypto: webcrypto,
     navigator: {}, document: {querySelector: () => null, querySelectorAll: () => []}});
-  for (const path of ['insights.js', 'dashboard.js', 'records.js', 'assistant.js', 'assistant-ui.js', 'records-ui.js', 'app.js']) {
+  for (const path of ['insights.js', 'dashboard.js', 'records.js', 'funds.js', 'funds-ui.js', 'assistant.js', 'assistant-ui.js', 'records-ui.js', 'app.js']) {
     const code = fs.readFileSync(require.resolve('../' + path), 'utf8').replace(/start\(\)\.catch\([\s\S]*$/, '');
     vm.runInContext(code, ctx);
   }

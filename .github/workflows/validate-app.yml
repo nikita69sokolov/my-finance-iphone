@@ -6,6 +6,8 @@ on:
       - app.js
       - insights.js
       - dashboard.js
+      - funds.js
+      - funds-ui.js
       - assistant.js
       - assistant-ui.js
       - records.js
@@ -34,6 +36,8 @@ jobs:
           node --check app.js
           node --check insights.js
           node --check dashboard.js
+          node --check funds.js
+          node --check funds-ui.js
           node --check assistant.js
           node --check assistant-ui.js
           node --check records.js

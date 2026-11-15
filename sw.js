@@ -1,10 +1,10 @@
-const CACHE = 'my-finance-shell-v1.6.2';
-const ASSETS = ['./','./index.html','./styles.css?v=1.6.2','./updates.js?v=1.6.2','./app.js?v=1.6.2','./insights.js?v=1.6.2','./dashboard.js?v=1.6.2','./records.js?v=1.6.2','./records-ui.js?v=1.6.2','./assistant.js?v=1.6.2','./assistant-ui.js?v=1.6.2','./import-v14.js?v=1.6.2','./vendor/pdf.min.mjs','./vendor/pdf.worker.min.mjs','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
+const CACHE = 'my-finance-shell-v1.7.0';
+const ASSETS = ['./','./index.html','./styles.css?v=1.7.0','./updates.js?v=1.7.0','./app.js?v=1.7.0','./insights.js?v=1.7.0','./dashboard.js?v=1.7.0','./funds.js?v=1.7.0','./funds-ui.js?v=1.7.0','./records.js?v=1.7.0','./records-ui.js?v=1.7.0','./assistant.js?v=1.7.0','./assistant-ui.js?v=1.7.0','./import-v14.js?v=1.7.0','./vendor/pdf.min.mjs','./vendor/pdf.worker.min.mjs','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
 });
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('my-finance-shell-') && key !== CACHE).map(key => caches.delete(key)))).then(()=>self.clients.claim()).then(()=>self.clients.matchAll({type:'window',includeUncontrolled:true})).then(clients=>clients.forEach(client=>client.postMessage({type:'APP_UPDATED',version:'1.6.2'}))));
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('my-finance-shell-') && key !== CACHE).map(key => caches.delete(key)))).then(()=>self.clients.claim()).then(()=>self.clients.matchAll({type:'window',includeUncontrolled:true})).then(clients=>clients.forEach(client=>client.postMessage({type:'APP_UPDATED',version:'1.7.0'}))));
 });
 self.addEventListener('message', event => {
   if(event.data?.type === 'ACTIVATE_UPDATE') self.skipWaiting();

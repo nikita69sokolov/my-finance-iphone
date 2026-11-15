@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
-  <meta name="application-version" content="1.6.2">
+  <meta name="application-version" content="1.7.0">
   <meta name="theme-color" content="#0a1020">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" sizes="any" type="image/svg+xml" href="./icon.svg">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=1.6.2">
+  <link rel="stylesheet" href="./styles.css?v=1.7.0">
   <title>Мои Финансы</title>
 </head>
 <body>
@@ -25,6 +25,7 @@
   <main id="app" class="page-main" aria-live="polite"></main>
   <nav class="bottom-nav" aria-label="Разделы">
     <button class="nav-btn active" data-tab="home" type="button" aria-label="Обзор"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/></svg><span>Обзор</span></button>
+    <button class="nav-btn" data-tab="funds" type="button" aria-label="Мои средства"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M3 10h18M6 15h4"/></svg><span>Средства</span></button>
     <button class="nav-btn" data-tab="transactions" type="button" aria-label="Операции"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="12" r="1"/><circle cx="7" cy="17" r="1"/></svg><span>Операции</span></button>
     <button class="nav-btn" data-tab="budgets" type="button" aria-label="Бюджеты"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18M16 14h2"/></svg><span>Бюджеты</span></button>
     <button class="nav-btn" data-tab="debts" type="button" aria-label="Кредиты"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h4"/></svg><span>Кредиты</span></button>
@@ -41,15 +42,18 @@
 <input id="sberDebtPdfFile" type="file" accept=".pdf,application/pdf" hidden>
 <input id="backupFile" type="file" accept=".json,.mfinance,application/json" hidden>
 <input id="bankRecordsFile" type="file" accept=".json,application/json" hidden>
+<input id="fundsCardFile" type="file" accept=".json,application/json" hidden>
 <input id="assistantPlanFile" type="file" accept=".json,application/json,text/plain" hidden>
-<script src="./import-v14.js?v=1.6.2" defer></script>
-<script src="./insights.js?v=1.6.2" defer></script>
-<script src="./dashboard.js?v=1.6.2" defer></script>
-<script src="./records.js?v=1.6.2" defer></script>
-<script src="./assistant.js?v=1.6.2" defer></script>
-<script src="./assistant-ui.js?v=1.6.2" defer></script>
-<script src="./records-ui.js?v=1.6.2" defer></script>
-<script src="./updates.js?v=1.6.2" defer></script>
-<script src="./app.js?v=1.6.2" defer></script>
+<script src="./import-v14.js?v=1.7.0" defer></script>
+<script src="./insights.js?v=1.7.0" defer></script>
+<script src="./dashboard.js?v=1.7.0" defer></script>
+<script src="./funds.js?v=1.7.0" defer></script>
+<script src="./funds-ui.js?v=1.7.0" defer></script>
+<script src="./records.js?v=1.7.0" defer></script>
+<script src="./assistant.js?v=1.7.0" defer></script>
+<script src="./assistant-ui.js?v=1.7.0" defer></script>
+<script src="./records-ui.js?v=1.7.0" defer></script>
+<script src="./updates.js?v=1.7.0" defer></script>
+<script src="./app.js?v=1.7.0" defer></script>
 </body>
 </html>

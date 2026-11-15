@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const {webcrypto} = require('node:crypto');
 const {File} = require('node:buffer');
 const U = require('../updates.js');
+const publishedVersion = fs.readFileSync(require.resolve('../index.html'), 'utf8').match(/name="application-version" content="([^"]+)"/)[1];
 const base = 'https://example.test/my-finance-iphone/';
 
 test('manual update checks the worker without its HTTP cache and navigates within the same app', async () => {
@@ -51,7 +52,7 @@ function workerContext(network) {
     self: {location: {origin: new URL(base).origin, href: base + 'sw.js'}, addEventListener: (name, fn) => {handlers[name] = fn;}, skipWaiting: async () => {},
       clients: {claim: async () => {}, matchAll: async () => [{postMessage: message => messages.push(message)}]}},
     caches: {open: async () => cache, match: async request => entries.has(key(request)) ? new Response(entries.get(key(request))) : undefined,
-      keys: async () => ['my-finance-shell-v1.6.1','my-finance-shell-v1.6.2','other-app-data'], delete: async name => {deleted.push(name);}},
+      keys: async () => ['my-finance-shell-v1.6.1','my-finance-shell-v'+publishedVersion,'other-app-data'], delete: async name => {deleted.push(name);}},
     fetch: network});
   vm.runInContext(fs.readFileSync(require.resolve('../sw.js'),'utf8'), context);
   const fetchEvent = async request => {
@@ -80,13 +81,13 @@ test('worker activation removes only old shell caches and notifies existing page
   const w = workerContext(async () => new Response('ok')); let complete;
   w.handlers.activate({waitUntil: p => {complete = p;}}); await complete;
   assert.deepEqual(w.deleted, ['my-finance-shell-v1.6.1']);
-  assert.equal(w.messages[0].version, '1.6.2');
+  assert.equal(w.messages[0].version, publishedVersion);
 });
 
 function appContext() {
   const ctx = vm.createContext({console, Intl, Date, Math, JSON, Number, String, Object, Array, Set, Map, Promise, TextEncoder, Uint8Array, File, crypto: webcrypto,
     navigator: {}, document: {querySelector: () => null, querySelectorAll: () => []}});
-  for (const path of ['insights.js','dashboard.js','records.js','assistant.js','assistant-ui.js','records-ui.js','updates.js','app.js']) vm.runInContext(fs.readFileSync(require.resolve('../'+path),'utf8').replace(/start\(\)\.catch\([\s\S]*$/,''), ctx);
+  for (const path of ['insights.js','dashboard.js','records.js','funds.js','funds-ui.js','assistant.js','assistant-ui.js','records-ui.js','updates.js','app.js']) vm.runInContext(fs.readFileSync(require.resolve('../'+path),'utf8').replace(/start\(\)\.catch\([\s\S]*$/,''), ctx);
   vm.runInContext("today=()=> '2026-11-15'; openModal=(title,html)=>{globalThis.preview={title,html}}",ctx);
   return ctx;
 }

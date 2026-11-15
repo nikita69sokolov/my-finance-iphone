@@ -92,7 +92,7 @@ test('sanitization exposes only known numeric observations, preserves zero and d
 function appContext() {
   const ctx = vm.createContext({console, Intl, Date, Math, JSON, Number, String, Object, Array, Set, Map, Promise, TextEncoder, Uint8Array, File, crypto: webcrypto,
     navigator: {}, document: {querySelector: () => null, querySelectorAll: () => []}});
-  for (const path of ['insights.js', 'dashboard.js', 'records.js', 'assistant.js', 'assistant-ui.js', 'records-ui.js', 'app.js']) vm.runInContext(fs.readFileSync(require.resolve('../' + path), 'utf8').replace(/start\(\)\.catch\([\s\S]*$/, ''), ctx);
+  for (const path of ['insights.js', 'dashboard.js', 'records.js', 'funds.js', 'funds-ui.js', 'assistant.js', 'assistant-ui.js', 'records-ui.js', 'app.js']) vm.runInContext(fs.readFileSync(require.resolve('../' + path), 'utf8').replace(/start\(\)\.catch\([\s\S]*$/, ''), ctx);
   ctx.input = state(); ctx.payload = data();
   vm.runInContext("state = normalizeState(input); today = () => '2026-11-15'; render = () => {}; closeModal = () => {}; activateTab = () => {}; notify = () => {}; openModal = (title, html) => {globalThis.modalHtml = html}", ctx);
   return ctx;

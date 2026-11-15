@@ -2,6 +2,7 @@
 (function (root) {
 'use strict';
 const F = root.FinanceInsights || (typeof require === 'function' ? require('./insights.js') : null);
+const Funds = root.FinanceFunds || (typeof require === 'function' ? require('./funds.js') : null);
 const R = root.FinanceRecords || (typeof require === 'function' ? require('./records.js') : null);
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 const BLOCKED = new Set(['__proto__', 'prototype', 'constructor']);
@@ -82,6 +83,10 @@ async function createContext(input, month, asOf, appVersion, createdAt = new Dat
       allowedChanges: ['income', 'limit', 'savingsGoal', 'categoryLimits'],
       note: 'В ответе скопируй snapshotId из корня этого файла в source.snapshotId. Каждый бюджет содержит month и только изменяемые поля. Суммы — числа в рублях, до двух знаков после точки. Неизменяемые категории не перечисляй. Ответ проходит проверку и применяется только после просмотра.'}
   };
+  if (state.primaryCard) {
+    const funds = Funds.balances(state, asOf);
+    if (funds.card) context.funds = {primaryCard: funds.card, knownTotal: funds.knownTotal, savingsBalance: funds.savingsBalance, knownSavingsCount: funds.knownCount, savingsCount: funds.accountCount};
+  }
   context.responseContract.source.snapshotId = context.snapshotId;
   return context;
 }

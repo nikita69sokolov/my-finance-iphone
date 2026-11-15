@@ -21,7 +21,7 @@ const CATEGORY_DEFAULTS = [
   {id:'other-income',name:'Другие поступления',icon:'✨',color:'#c4d3b3',kind:'income'},
   {id:'transfer',name:'Перевод между счетами',icon:'↔️',color:'#8393a6',kind:'transfer'}
 ];
-const APP_VERSION = '1.6.2';
+const APP_VERSION = '1.7.0';
 const DEFAULT_STATE = () => ({version:4,transactions:[],budgets:{},budgetMonths:{},budgetPlans:{},debts:[],subscriptions:[],savings:[],categories:structuredCloneSafe(CATEGORY_DEFAULTS)});
 let state = DEFAULT_STATE();
 let db = null;
@@ -59,6 +59,8 @@ function normalizeState(input){
   return {
     version:4,
     ...FinanceInsights.normalizePlanning(input),
+    ...(input.primaryCard && FinanceFunds.cardSnapshot(input.primaryCard) ? {primaryCard: FinanceFunds.cardSnapshot(input.primaryCard)} : {}),
+    ...(input.fundsChecks ? {fundsChecks: Object.fromEntries(Object.entries(input.fundsChecks).filter(([key, value]) => key.startsWith('[') && key.length <= 300 && typeof value === 'boolean'))} : {}),
     categories:keptCats,
     transactions:input.transactions.filter(x=>x && typeof x.date==='string' && ['expense','income','transfer'].includes(x.type) && Number.isFinite(Number(x.amount))).slice(0,100000).map(x=>({id:String(x.id||uid()),type:x.type,date:x.date,title:String(x.title||'Операция').slice(0,250),amount:Math.abs(Number(x.amount)),category:String(x.category||'other-expense'),account:String(x.account||'').slice(0,80),source:String(x.source||'manual').slice(0,80),sourceRef:String(x.sourceRef||'').slice(0,180),bankCategory:String(x.bankCategory||'').slice(0,100),transactionTime:String(x.transactionTime||'').slice(0,8),savingsFlow:[-1,1].includes(Number(x.savingsFlow))?Number(x.savingsFlow):0,savingsId:String(x.savingsId||'').slice(0,100)})),
     debts:input.debts.filter(x=>x && typeof x.name==='string').slice(0,100).map(x=>({
@@ -121,7 +123,7 @@ function renderHome(){
   const gradient=segment.length?`conic-gradient(${segment.map(s=>`${s.color} ${s.start.toFixed(2)}% ${s.finish.toFixed(2)}%`).join(',')}${progress<100?`, #536e83 ${progress.toFixed(2)}% 100%`:''})`:'conic-gradient(#2a4152 0 100%)';
   const legend=byCat.slice(0,4).map(c=>`<div class="legend-row"><span class="legend-label"><i class="dot" style="background:${esc(c.category.color)}"></i>${esc(c.category.name)}</span><b class="legend-value">${Math.round(c.amount/Math.max(expense,1)*100)}%</b></div>`).join('');
   return heading('Обзор')+monthBar()+`
-  <section class="hero"><div class="hero-label">Чистый итог за месяц</div><div class="hero-value">${net>=0?'+':'−'}${money(Math.abs(net))}</div><span class="pill">${net>=0?'↗ Доходы выше расходов':'↘ Расходы выше доходов'}</span><div class="hero-foot small-top">Разница между доходами и расходами, не баланс банковского счёта</div></section>
+  <section class="hero"><div class="hero-label">Чистый итог за месяц</div><div class="hero-value">${net>=0?'+':'−'}${money(Math.abs(net))}</div><span class="pill">${net>=0?'↗ Доходы выше расходов':'↘ Расходы выше доходов'}</span><div class="hero-foot small-top">Доходы минус расходы по внесённым операциям за месяц</div><button class="funds-home-link text-link" type="button" data-action="view-funds">Мои средства →</button></section>
   <div class="two-col"><div class="metric-card"><div class="metric-head"><span class="metric-symbol in">↙</span>Доходы</div><div class="metric-value">${short(income)}</div></div><div class="metric-card"><div class="metric-head"><span class="metric-symbol out">↗</span>Расходы</div><div class="metric-value">${short(expense)}</div></div></div>
   ${renderAnalytics(analysis)}
   ${renderBudgetTeaser(analysis)}
@@ -263,7 +265,7 @@ function renderSettings(){
  <div class="footnote">Мои Финансы v${APP_VERSION} · ₽ · Без рекламы и отслеживания. Чтобы не потерять записи, регулярно сохраняйте резервную копию в безопасном месте. Публикация кода приложения не публикует ваши финансовые операции.</div></div>`;
 }
 function render(){
- const pages={home:renderHome,transactions:renderTransactions,budgets:renderBudgets,debts:renderDebts,savings:renderSavings,subscriptions:renderSubscriptions,assistant:renderAssistant,settings:renderSettings};
+ const pages={home:renderHome,funds:renderFunds,transactions:renderTransactions,budgets:renderBudgets,debts:renderDebts,savings:renderSavings,subscriptions:renderSubscriptions,assistant:renderAssistant,settings:renderSettings};
  $('#app').innerHTML=(pages[activeTab]||renderHome)();
  $$('.nav-btn').forEach(button=>{button.classList.toggle('active',button.dataset.tab===activeTab);button.setAttribute('aria-current',button.dataset.tab===activeTab?'page':'false');});
 }
@@ -751,6 +753,7 @@ function openBankImportV14(data,filename){
  ${box}
  <div class="setting-card small-top"><div class="budget-line"><span>Поступления по PDF</span><strong>${money(data.totals.income)}</strong></div><div class="budget-line"><span>Списания по PDF</span><strong>${money(data.totals.expense)}</strong></div>${s.income!==null?`<p class="subtle">Банк: поступления ${money(s.income)}, списания ${money(s.expense)}.</p>`:''}${s.closing!==null?`<p class="subtle">Остаток КАРТЫ на ${esc(s.to||'дату выписки')}: ${money(s.closing)} (не остаток вклада).</p>`:''}</div>
  <p class="subtle">Из них найдено переводов в Копилку: ${contributions}; возвратов из накоплений: ${withdrawals}. Они будут отнесены к внутренним переводам.</p>
+ ${eligibleSalaryClosing(data) ? '<label class="checkbox-row"><input name="salaryClosing" type="checkbox"> Это моя зарплатная карта. Сверить её остаток на конец выписки: ' + money(s.closing) + ' на ' + esc(s.to) + '</label>' : ''}
  <div class="field"><label for="savingImportLink">К какому вкладу отнести переводы?</label><select id="savingImportLink" name="savingId"><option value="auto">Создать/использовать «Копилка Сбербанка»</option>${state.savings.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></div>
  <div class="setting-card small-top"><strong>Примеры распознанных строк</strong>${preview}</div>
  ${old.length?`<label class="checkbox-row"><input name="replaceOld" type="checkbox"> Заменить ${old.length} старых операций импорта PDF Сбербанка за этот период (ручные записи не трогаем)</label>`:''}
@@ -759,12 +762,20 @@ function openBankImportV14(data,filename){
  <div class="form-actions"><button type="submit" class="primary-btn wide">Проверил — импортировать ${data.rows.length} операций</button></div></form>`);
 }
 async function handleBankPdfV14(file){const pages=await readAllPdfLines(file);const result=FinanceV14.parseStatementPages(pages);if(!result.rows.length)throw Error('Операции не найдены.');openBankImportV14(result,file.name);}
+function eligibleSalaryClosing(draft){
+ const s=draft.summary;
+ return draft.complete && FinanceFunds.cardSnapshot({balance:s.closing,asOf:s.to}) && s.to<=today() && (!state.primaryCard || s.to>=state.primaryCard.asOf);
+}
 async function saveBankImportV14(form){
  const draft=statementV14Draft;if(!draft)throw Error('Загрузите выписку заново.');
  const data=new FormData(form);if(!draft.complete&&data.get('acceptIncomplete')!=='on')throw Error('Подтвердите неполную сверку.');
  const replace=data.get('replaceOld')==='on';const s=draft.summary;
  const old=state.transactions.filter(x=>x.source==='sber-pdf'&&(!s.from||x.date>=s.from)&&(!s.to||x.date<=s.to));
  if(replace&&old.length&&!confirm(`Удалить ${old.length} операций предыдущего PDF-импорта Сбербанка за выбранный период и заменить их новым разбором? Ручные записи останутся.`))return;
+ const updateCard=data.get('salaryClosing')==='on';
+ if(updateCard&&!eligibleSalaryClosing(draft))throw Error('Для сверки карты нужна полная выписка с более свежим остатком.');
+ const previous={transactions:state.transactions,savings:state.savings,card:state.primaryCard};
+ state.transactions=state.transactions.slice();state.savings=state.savings.slice();
  let sid=String(data.get('savingId')||'auto');
  if(sid==='auto'){
   let account=state.savings.find(x=>x.source==='sber-import'&&x.bank==='Сбербанк');
@@ -776,7 +787,13 @@ async function saveBankImportV14(form){
  if(replace){const ids=new Set(old.map(x=>x.id));state.transactions=state.transactions.filter(x=>!ids.has(x.id));}
  const seen=new Set(state.transactions.map(x=>x.sourceRef).filter(Boolean));let added=0,dups=0;
  for(const r of draft.rows){if(seen.has(r.uniqueKey)){dups++;continue;}state.transactions.push(intoTxV14(r,sid));seen.add(r.uniqueKey);added++;}
- await commit();statementV14Draft=null;closeModal();activateTab('transactions');notify(`Добавлено ${added}; повторов пропущено ${dups}${replace?`; заменено старых ${old.length}`:''}`);
+ if(updateCard && !(previous.card?.asOf===s.to && previous.card.balance===s.closing))state.primaryCard={asOf:s.to,balance:s.closing};
+ try{await saveState();}catch(error){
+  state.transactions=previous.transactions;state.savings=previous.savings;
+  if(previous.card)state.primaryCard=previous.card;else delete state.primaryCard;
+  throw error;
+ }
+ statementV14Draft=null;closeModal();activateTab(updateCard?'funds':'transactions');notify(`Добавлено ${added}; повторов пропущено ${dups}${replace?`; заменено старых ${old.length}`:''}`);
 }
 function openMortgageV14(info,filename){
  mortgageV14Draft=info;
@@ -850,11 +867,13 @@ async function restoreFromFile(file,password){
 }
 function setBusy(b){isBusy=b;$$('.sheet button[type=submit]').forEach(x=>x.disabled=b);}
 async function handleSubmit(event){
- const form=event.target;if(!['transactionForm','budgetForm','monthPlanForm','autoBudgetForm','debtForm','subscriptionForm','importForm','creditPdfForm','mortgageScheduleForm','sberFullImportForm','savingForm','exportForm','restoreForm'].includes(form.id))return;
+ const form=event.target;if(!['fundsCardForm','transactionForm','budgetForm','monthPlanForm','autoBudgetForm','debtForm','subscriptionForm','importForm','creditPdfForm','mortgageScheduleForm','sberFullImportForm','savingForm','exportForm','restoreForm'].includes(form.id))return;
  event.preventDefault();if(isBusy)return;setBusy(true);
  try{
   const data=new FormData(form);
-  if(form.id==='transactionForm'){
+  if(form.id==='fundsCardForm'){
+   await saveFundsCard(data);
+  }else if(form.id==='transactionForm'){
    const type=data.get('type');const amount=Number(data.get('amount'));const title=String(data.get('title')||'').trim();const date=data.get('date');
    if(!['income','expense','transfer'].includes(type)||!(amount>0)||!title||!parseBankDate(date))throw new Error('Проверьте сумму, название и дату');
    const existing=state.transactions.find(x=>x.id===form.dataset.id);
@@ -924,6 +943,21 @@ async function handleAction(event){
   appRefreshBusy=true;b.disabled=true;notify('Загружаем обновление. Записи сохраняются.');
   try{await FinanceUpdates.refresh({navigator,location},APP_VERSION);}catch(error){notify(error.message||'Не удалось обновить приложение. Проверь интернет и повтори.');}
   finally{appRefreshBusy=false;b.disabled=false;}
+  return;
+ }
+ if(action==='view-funds'){activateTab('funds');return;}
+ if(action==='funds-edit'){openFundsCard();return;}
+ if(action==='funds-import'){$('#fundsCardFile').click();return;}
+ if(action==='funds-check'){
+  if(isBusy)return;
+  setBusy(true);
+  try{await setFundsCheck(b);}catch(error){render();notify('Не удалось сохранить отметку.');}finally{setBusy(false);}
+  return;
+ }
+ if(action==='funds-budget'||action==='funds-category'){
+  activeMonth=monthNow();
+  if(action==='funds-budget')activateTab('budgets');
+  else{transactionFilter='expense';transactionSearch='';transactionCategoryFilter=id;activateTab('transactions');}
   return;
  }
  if(action.startsWith('bank-records-')){await handleBankRecordsAction(action);return;}
@@ -1004,6 +1038,13 @@ async function start(){
    try{notify('Читаем кредитный PDF на iPhone');await handleMortgageDocumentV14(file);}catch(e){console.error(e);notify(e?.message||'Не удалось прочитать кредитный PDF');}
   });
   $('#backupFile').addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';if(file)openRestore(file);});
+ $('#fundsCardFile').addEventListener('change',async event=>{
+  const file=event.target.files?.[0];event.target.value='';if(!file)return;
+  try{
+   if(file.size>256*1024)throw Error('Выбери файл остатка карты до 256 КБ.');
+   openFundsCard(FinanceFunds.readFile(FinanceAssistant.parsePlan(await file.text()),state.primaryCard,today()));
+  }catch(error){notify(error.message||'Не удалось прочитать остаток карты.');}
+ });
  $('#assistantPlanFile').addEventListener('change',async event=>{const file=event.target.files?.[0];event.target.value='';if(file)try{await readAssistantPlanFile(file);}catch(error){notify(error.message||'Не удалось прочитать план помощника.');}});
  if(storageFallback)notify('Доступно только резервное локальное хранение. Делайте копии чаще.');
  $('#bankRecordsFile').addEventListener('change',async event=>{const file=event.target.files?.[0];event.target.value='';if(file)try{if(file.size>256*1024)throw new Error('Файл должен быть не больше 256 КБ.');await previewBankRecords(await file.text());}catch(error){notify(error.message||'Не удалось прочитать записи.');}});
