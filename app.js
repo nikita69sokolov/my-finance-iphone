@@ -61,7 +61,8 @@ function normalizeState(input){
       id:String(x.id||uid()),name:x.name.slice(0,100),kind:['mortgage','loan','creditcard','other'].includes(x.kind)?x.kind:'loan',
       lender:String(x.lender||'').slice(0,100),balance:Math.max(0,validNumber(x.balance)),rate:Math.max(0,validNumber(x.rate)),
       payment:Math.max(0,validNumber(x.payment)),dueDay:Math.min(31,Math.max(0,Number(x.dueDay)||0)),
-      balanceDate:parseBankDate(x.balanceDate)||'',notes:String(x.notes||'').slice(0,350)
+      balanceDate:parseBankDate(x.balanceDate)||'',notes:String(x.notes||'').slice(0,350),
+       contractTail:/^\d{4}$/.test(String(x.contractTail||''))?String(x.contractTail):'',source:String(x.source||'manual').slice(0,40)
     })),
     subscriptions:(Array.isArray(input.subscriptions)?input.subscriptions:[]).filter(x=>x&&typeof x.name==='string').slice(0,250).map(x=>({
       id:String(x.id||uid()),name:x.name.slice(0,120),amount:Math.max(0,validNumber(x.amount)),
@@ -173,8 +174,9 @@ function renderDebts(){
  const total=active.reduce((n,d)=>n+d.balance,0),payments=active.reduce((n,d)=>n+d.payment,0);
  const monthlyInterest=active.reduce((n,d)=>n+d.balance*d.rate/1200,0);
  return heading('Кредиты и ипотека','ДОЛГОВАЯ НАГРУЗКА',`<button class="secondary-btn" data-action="add-debt">+ Добавить</button>`)+`
- <div class="hero"><div class="hero-label">Общий остаток долга</div><div class="hero-value">${short(total)}</div><div class="hero-foot">Платежи в месяц: ${short(payments)} · Из них проценты ≈ ${short(monthlyInterest)}</div></div>
- <div class="notice warn small-top">Остатки и даты обновляются вручную по сведениям банка. Приложение не совершает платежей, не запрашивает кредиты через API и не считает плановый платёж подтверждённым.</div>
+ <div class="form-actions small-top"><button type="button" data-action="import-debt-sber" class="secondary-btn wide">Распознать кредит из PDF Сбербанка</button></div>
+  <div class="hero"><div class="hero-label">Общий остаток долга</div><div class="hero-value">${short(total)}</div><div class="hero-foot">Платежи в месяц: ${short(payments)} · Из них проценты ≈ ${short(monthlyInterest)}</div></div>
+ <div class="notice warn small-top">Остатки и даты можно обновить из кредитного PDF Сбербанка после проверки. Приложение не совершает платежей и не считает плановый платёж фактическим.</div>
  ${sectionHeader('Мои обязательства')}
  ${state.debts.length?state.debts.map(d=>{const due=dueDateForDay(d.dueDay);const interest=d.balance*d.rate/1200;return `<div class="debt-card"><div class="budget-line"><div class="debt-name">${d.kind==='mortgage'?'🏠 ':d.kind==='creditcard'?'💳 ':'🏦 '}${esc(d.name)}</div><button type="button" class="text-link" data-action="edit-debt" data-id="${esc(d.id)}">Изменить</button></div><div class="subtle">${esc(d.lender||'Банк не указан')} ${d.dueDay?'· Платёж '+d.dueDay+'-го числа':''}</div><div class="debt-total">${money(d.balance)}</div><div class="debt-stats"><div><small>Ставка</small><strong>${d.rate}% годовых</strong></div><div><small>Платёж</small><strong>${money(d.payment)}</strong></div></div><p class="subtle">${due?'Следующий плановый платёж: '+dateView(due)+' ('+scheduledStatus(due)+')':'Укажите день платежа'} · ${esc(debtForecast(d))}</p><p class="subtle">Проценты за условный месяц ≈ ${money(interest)}; уменьшение долга при платеже ≈ ${money(Math.max(0,d.payment-interest))}. ${d.balanceDate?'Остаток проверен '+dateView(d.balanceDate)+'.':''}</p>${d.notes?`<p class="subtle">${esc(d.notes)}</p>`:''}</div>`;}).join(''):empty('▤','Нет кредитов','Добавьте ипотеку или потребительский кредит: остаток, ставку, сумму и день платежа.','Добавить кредит','add-debt')}
  <p class="footnote">Прогноз приблизительный: без изменения ставок, страховок, комиссий и досрочного погашения. Для точных платежей сверяйтесь с графиком банка.</p>`;
@@ -247,11 +249,12 @@ function renderSettings(){
  return heading('Настройки','ДАННЫЕ И ПРИВАТНОСТЬ')+`
  <div class="stack"><div class="notice">Ваши записи хранятся локально на устройстве. Мы не отправляем суммы, выписки или пароли в GitHub и сторонние сервисы.</div>
  <div class="setting-card"><h3>Сбербанк · только чтение</h3><p>Откройте СберБанк Онлайн → «Выписки и справки» → получите выписку по карте/счёту в PDF → сохраните в «Файлы» на iPhone. Мы прочитаем документ прямо на телефоне, покажем результат перед импортом и не будем подключаться к банковскому аккаунту.</p><div class="notice">Без входа в банк, SMS и кодов подтверждения. Переводы, платежи и управление счетами технически отсутствуют.</div><button type="button" data-action="import-sber" class="primary-btn wide small-top">Загрузить PDF Сбербанка</button><p class="subtle small-top">Распознавание текстовых PDF — предварительная версия. Внимательно проверьте даты, направления и суммы. Сканированные PDF могут не прочитаться.</p></div>
- <div class="setting-card"><h3>Импорт CSV</h3><p>Для Сбербанка, Т-Банка и других банков: загрузите CSV-файл. Выберите колонки и проверьте операции перед сохранением.</p><button type="button" data-action="import-csv" class="secondary-btn">Загрузить CSV</button></div>
+ <div class="setting-card"><h3>Кредиты и ипотека · PDF Сбербанка</h3><p>В СберБанк Онлайн открой кредит → «О кредите» → «График» или закажи справку о задолженности в «Выписки и справки». Сохрани PDF в «Файлы» и загрузи здесь: приложение заполнит найденные параметры и предложит обновить существующий кредит либо создать новый.</p><button type="button" data-action="import-debt-sber" class="secondary-btn wide">Распознать кредит или ипотеку</button><p class="subtle small-top">Файл остаётся на iPhone. Проверяй числа: в разных справках есть не все показатели. Сканированные документы и PDF с паролем могут не распознаться.</p></div>
+  <div class="setting-card"><h3>Импорт CSV</h3><p>Для Сбербанка, Т-Банка и других банков: загрузите CSV-файл. Выберите колонки и проверьте операции перед сохранением.</p><button type="button" data-action="import-csv" class="secondary-btn">Загрузить CSV</button></div>
  <div class="setting-card"><h3>Резервная копия</h3><p>Сохраните зашифрованную копию всех операций, бюджетов, кредитов и подписок в «Файлы». Пароль нужен для восстановления — мы его не храним.</p><button type="button" data-action="export-backup" class="secondary-btn">Создать копию</button><button type="button" data-action="restore-backup" class="secondary-btn">Восстановить</button></div>
  <div class="setting-card"><h3>Установка на iPhone</h3><p>Откройте опубликованную ссылку в Safari → «Поделиться» → «На экран Домой» → «Открывать как веб-приложение». После первого запуска основные функции работают без интернета.</p></div>
  <div class="setting-card"><h3>Статистика</h3><p>Операций: ${state.transactions.length}. Активных лимитов: ${Object.keys(state.budgets).length}. Кредитов: ${state.debts.length}. Подписок: ${state.subscriptions.length}.</p><button type="button" class="danger-btn" data-action="clear-all">Удалить все данные</button></div>
- <div class="footnote">Мои Финансы v1.2 · ₽ · Без рекламы и аналитики. Чтобы не потерять записи, регулярно сохраняйте резервную копию в безопасном месте. Публикация кода приложения не публикует ваши финансовые операции.</div></div>`;
+ <div class="footnote">Мои Финансы v1.3 · ₽ · Без рекламы и аналитики. Чтобы не потерять записи, регулярно сохраняйте резервную копию в безопасном месте. Публикация кода приложения не публикует ваши финансовые операции.</div></div>`;
 }
 function render(){
  const pages={home:renderHome,transactions:renderTransactions,budgets:renderBudgets,debts:renderDebts,subscriptions:renderSubscriptions,settings:renderSettings};
@@ -465,6 +468,213 @@ async function handleSberPdf(file){
   throw e;
  }finally{await documentPdf?.destroy();}
 }
+// Credit/mortgage document reader v1.3: on-device PDF parsing, no bank API or uploads.
+const creditPdf = (() => {
+  let draft = null;
+  const amountRx = /(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d{4,11}|\d{1,3})(?:[,.]\d{1,2})?/g;
+  const clean = value => String(value || '').replace(/[\u00a0\u202f]/g, ' ').replace(/[−–]/g, '-').replace(/\s+/g, ' ').trim();
+  function dateIn(value) {
+    const s = String(value || '');
+    const ru = s.match(/(?:^|[^\d])(\d{2})[./-](\d{2})[./-](\d{4})(?!\d)/);
+    const iso = s.match(/(?:^|[^\d])(\d{4})-(\d{2})-(\d{2})(?!\d)/);
+    let y, m, d;
+    if (ru) { d=+ru[1]; m=+ru[2]; y=+ru[3]; }
+    else if (iso) { y=+iso[1]; m=+iso[2]; d=+iso[3]; }
+    else return '';
+    const check = new Date(Date.UTC(y, m-1, d));
+    return y >= 2000 && y <= 2100 && check.getUTCFullYear() === y && check.getUTCMonth() === m-1 && check.getUTCDate() === d
+      ? `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` : '';
+  }
+  function amountIn(value) {
+    const s = clean(value).replace(/\d{2}[./-]\d{2}[./-]\d{4}/g, ' ');
+    for (const m of s.matchAll(amountRx)) {
+      const raw=m[0], n=Number(raw.replace(/ /g,'').replace(',','.'));
+      const after=s.slice(m.index+raw.length,m.index+raw.length+20);
+      const currency=/руб|₽/i.test(after);
+      const grouped=/\d \d{3}/.test(raw), decimals=/[,.]\d{1,2}$/.test(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 1e11) continue;
+      if (!grouped && !decimals && !currency && n < 10000 && n !== 0) continue;
+      return n;
+    }
+    return null;
+  }
+  function labelledAmount(lines, patterns) {
+    for (const pattern of patterns) {
+      for (let i=0; i<lines.length; i++) {
+        const match=pattern.exec(lines[i]);
+        if (!match) continue;
+        const suffix=lines[i].slice(match.index+match[0].length).replace(/^[\s:—-]+/,'');
+        const same=amountIn(suffix);
+        if (same!==null) return same;
+        const next=lines[i+1] || '';
+        if (next.length < 85 && !/договор|адрес|банк|сч[её]т|номер|дата выдачи/i.test(next)) {
+          const n=amountIn(next); if (n!==null) return n;
+        }
+      }
+    }
+    return null;
+  }
+  function labelledRate(lines) {
+    for (let i=0;i<lines.length;i++) {
+      const match=/(?:процентная\s+ставка|ставка\s+по\s+кредиту|годовая\s+ставка|ставка\s+процентов)/i.exec(lines[i]);
+      if (!match) continue;
+      for (const line of [lines[i].slice(match.index+match[0].length),lines[i+1] || '']) {
+        const m=line.match(/(\d{1,2}(?:[.,]\d{1,3})?)\s*%/);
+        if (m) { const n=Number(m[1].replace(',','.')); if(n>=0 && n<=100) return n; }
+      }
+    }
+    return null;
+  }
+  function paymentFromSchedule(lines) {
+    const start=lines.findIndex(line=>/график\s+платеж|дата\s+платежа/i.test(line));
+    if (start<0) return null;
+    const results=[];
+    for(let i=start+1;i<Math.min(lines.length,start+400);i++) {
+      const match=lines[i].match(/^\s*(\d{2}[./-]\d{2}[./-]\d{4})\s+(.+)$/);
+      if(!match) continue;
+      const date=dateIn(match[1]), amount=amountIn(match[2]);
+      if(date && date>=today() && amount!==null && amount>0 && amount<1e8) results.push({date,amount});
+    }
+    results.sort((a,b)=>a.date.localeCompare(b.date));
+    return results[0] || null;
+  }
+  function parse(lines) {
+    lines=lines.map(clean).filter(Boolean);
+    const preview=lines.slice(0,130).join(' ');
+    if (!/кредит|ипотек|задолженн|ссудн|займ/i.test(preview))
+      throw new Error('Это не похоже на кредитный документ. Выберите справку о задолженности либо график платежей Сбербанка.');
+    const mortgage=/ипоте(?:к|ч)|жилищн[а-яё]*\s+кредит|кредит\s+на\s+(?:приобретение|покупку)\s+(?:жилья|недвижимости|квартиры)/i.test(preview);
+    // A loan's original amount or total with accrued interest is NOT the outstanding principal.
+    const principal=labelledAmount(lines,[
+      /остаток\s+(?:непогашенн[а-яё]*\s+)?основн[а-яё]*\s+долга/i,
+      /задолженн[а-яё]*\s+по\s+основн[а-яё]*\s+долгу/i,
+      /остаток\s+ссудн[а-яё]*\s+задолженн[а-яё]*/i,
+      /ссудная\s+задолженн[а-яё]*/i
+    ]);
+    const total=labelledAmount(lines,[/общая\s+задолженн[а-яё]*/i,/всего\s+задолженн[а-яё]*/i]);
+    const original=labelledAmount(lines,[/первоначальн[а-яё]*\s+сумм[а-яё]*\s+кредит[а-яё]*/i,/сумма\s+кредита/i]);
+    const payment=labelledAmount(lines,[
+      /размер\s+(?:ежемесячн[а-яё]*|аннуитетн[а-яё]*|очередн[а-яё]*|планов[а-яё]*)\s+платежа/i,
+      /сумма\s+(?:ежемесячн[а-яё]*|очередн[а-яё]*|ближайш[а-яё]*)\s+платежа/i,
+      /ежемесячный\s+плат[её]ж/i,
+      /ближайший\s+плат[её]ж/i
+    ]);
+    const rate=labelledRate(lines),next=paymentFromSchedule(lines);
+    let dueDay=next ? Number(next.date.slice(8,10)) : null;
+    if(!dueDay) {
+      for(let i=0;i<lines.length;i++) {
+        if(!/(?:дата|день)\s+(?:ежемесячн[а-яё]*\s+|очередн[а-яё]*\s+|планов[а-яё]*\s+)?платежа|плат[её]ж\s+\d{1,2}\s+числа/i.test(lines[i])) continue;
+        const date=dateIn(lines[i]) || dateIn(lines[i+1] || '');
+        if(date) {dueDay=Number(date.slice(8,10));break;}
+        const m=lines[i].match(/(?:платежа|плат[её]ж)\s*(?:каждого\s+месяца\s+)?(?:[:—-]\s*)?(\d{1,2})(?:-го|\s+числа|$)/i);
+        if(m && +m[1]>=1 && +m[1]<=31) {dueDay=+m[1];break;}
+      }
+    }
+    let balanceDate='';
+    for(const line of lines.slice(0,100)) {
+      if(/по\s+состоянию\s+на|остаток\s+(?:долга|задолженности)\s+на\s+дату/i.test(line)) {
+        balanceDate=dateIn(line); if(balanceDate) break;
+      }
+    }
+    let contractTail='';
+    for(const line of lines.slice(0,90)) {
+      const m=line.match(/(?:кредитн[а-яё]*\s+договор[а-яё]*|договор[а-яё]*\s+кредит[а-яё]*|договор[а-яё]*)\s*(?:№|номер|N)\s*([0-9\- ]{8,38})/i);
+      if(m) {const digits=m[1].replace(/\D/g,'');if(digits.length>=8) {contractTail=digits.slice(-4);break;}}
+    }
+    const found={kind:mortgage?'mortgage':'loan',name:mortgage?'Ипотека Сбербанка':'Кредит Сбербанка',
+      balance:principal,rate,payment:payment??next?.amount??null,dueDay:dueDay??null,
+      balanceDate,contractTail,originalAmount:original,totalDebt:total,paymentDate:next?.date||''};
+    if([found.balance,found.rate,found.payment,found.dueDay].every(v=>v===null))
+      throw new Error('В PDF не удалось распознать остаток, ставку или платежи. Выберите справку или график платежей с текстом.');
+    return found;
+  }
+  function show(info,filename) {
+    draft=info;
+    const candidates=state.debts.filter(d=>/сбер/i.test(d.lender) || (info.contractTail && d.contractTail===info.contractTail));
+    const exact=info.contractTail?candidates.filter(d=>d.contractTail===info.contractTail):[];
+    const likely=exact.length===1?exact[0]:(candidates.length===1&&candidates[0].kind===info.kind?candidates[0]:null);
+    const fmt=v=>v===null||v===undefined?'':String(v);
+    const identified=[
+      ['Остаток основного долга',info.balance===null?'не найден':money(info.balance)],
+      ['Ставка',info.rate===null?'не найдена':String(info.rate)+' %'],
+      ['Ежемесячный платёж',info.payment===null?'не найден':money(info.payment)],
+      ['День платежа',info.dueDay===null?'не найден':String(info.dueDay)],
+      ['Дата остатка',info.balanceDate||'не найдена']
+    ];
+    const detail=identified.map(([label,value])=>`<div class="budget-line"><span class="subtle">${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('');
+    const targets=`<option value="">Создать новый кредит</option>`+state.debts.map(d=>`<option value="${esc(d.id)}" ${d.id===likely?.id?'selected':''}>Обновить: ${esc(d.name)} (${esc(d.lender||'банк')})</option>`).join('');
+    const kinds=[['mortgage','Ипотека'],['loan','Потребительский кредит'],['creditcard','Кредитная карта'],['other','Другой долг']].map(([v,t])=>`<option value="${v}" ${v===info.kind?'selected':''}>${t}</option>`).join('');
+    const caution=info.balance===null?'<div class="notice warn">Остаток основного долга не найден. Общая задолженность может включать проценты и штрафы. Для нового кредита укажи остаток вручную либо открой справку о задолженности.</div>':'';
+    const total=info.totalDebt!==null?`<p class="subtle">Справочно: общая задолженность ${money(info.totalDebt)} — не подставлена в основной долг.</p>`:'';
+    const original=info.originalAmount!==null?`<p class="subtle">Первоначальная сумма кредита: ${money(info.originalAmount)} — не подставлена в остаток.</p>`:'';
+    openModal('Сбербанк · распознавание кредита',`<form id="creditPdfForm">
+      <div class="notice">Документ «${esc(filename)}» прочитан на iPhone. Это предварительное распознавание, а не синхронизация с банком. Проверь цифры перед сохранением.</div>
+      <div class="setting-card small-top">${detail}${total}${original}${info.contractTail?`<p class="subtle">Номер договора оканчивается на ••••${esc(info.contractTail)}</p>`:''}</div>
+      ${caution}
+      <div class="field"><label for="creditImportTarget">Что сделать с кредитом?</label><select id="creditImportTarget" name="target">${targets}</select></div>
+      <div class="field"><label for="creditImportKind">Вид кредита</label><select id="creditImportKind" name="kind">${kinds}</select></div>
+      ${formField('creditImportName','Название (для нового кредита)','text',info.name,'','maxlength="100"')}
+      <div class="form-grid">${formField('creditImportBalance','Остаток основного долга, ₽','number',fmt(info.balance))}${formField('creditImportRate','Ставка, %','number',fmt(info.rate))}</div>
+      <div class="form-grid">${formField('creditImportPayment','Платёж, ₽','number',fmt(info.payment))}${formField('creditImportDay','День платежа (1–31)','number',fmt(info.dueDay))}</div>
+      ${formField('creditImportBalanceDate','Дата сведений об остатке','date',info.balanceDate)}
+      <div class="notice warn">Пустое поле при обновлении не меняет прежнее значение. Для нового кредита требуется остаток основного долга. Документ может быть устаревшим; наступление даты платежа не подтверждает оплату.</div>
+      <div class="form-actions"><button type="submit" class="primary-btn wide">Проверил — сохранить кредит</button></div>
+    </form>`);
+  }
+  async function read(file) {
+    if(!file || (!/\.pdf$/i.test(file.name) && file.type!=='application/pdf')) throw new Error('Нужен PDF-документ Сбербанка.');
+    if(file.size>20*1024*1024) throw new Error('Максимальный размер PDF — 20 МБ.');
+    const lib=await pdfJs();
+    const task=lib.getDocument({data:new Uint8Array(await file.arrayBuffer()),isEvalSupported:false,useSystemFonts:true,stopAtErrors:false});
+    let doc;
+    try {
+      doc=await task.promise;
+      if(doc.numPages>75) throw new Error('В документе больше 75 страниц.');
+      const lines=[];
+      for(let n=1;n<=doc.numPages;n++) {
+        const page=await doc.getPage(n),text=await page.getTextContent();
+        lines.push(...pdfTextLines(text.items));page.cleanup();
+      }
+      if(!lines.length) throw new Error('В PDF нет текстового слоя. Сканированную справку пока нельзя распознать.');
+      show(parse(lines),file.name);
+    } catch(e) {
+      if(e?.name==='PasswordException') throw new Error('PDF защищён паролем. Выбери документ, доступный для чтения.');
+      throw e;
+    } finally {await doc?.destroy();}
+  }
+  async function save(form) {
+    if(!draft) throw new Error('Нужно заново загрузить документ.');
+    const data=new FormData(form),id=String(data.get('target')||'');
+    const existing=id?state.debts.find(d=>d.id===id):null;
+    if(id&&!existing) throw new Error('Выбранный кредит не найден.');
+    const value=k=>String(data.get(k)||'').trim();
+    function numeric(k) {
+      const raw=value(k);if(!raw)return null;
+      const n=Number(raw.replace(',','.'));if(!Number.isFinite(n)||n<0) throw new Error('Проверь числовые значения.');
+      return n;
+    }
+    const balance=numeric('creditImportBalance'),rate=numeric('creditImportRate'),payment=numeric('creditImportPayment'),day=numeric('creditImportDay');
+    if(!existing&&balance===null) throw new Error('Для нового кредита укажи остаток основного долга из справки.');
+    if((balance!==null&&balance>1e11)||(rate!==null&&rate>100)||(payment!==null&&payment>1e8)) throw new Error('Сумма или ставка выходит за допустимые пределы.');
+    if(day!==null&&(!Number.isInteger(day)||day<1||day>31)) throw new Error('День платежа должен быть от 1 до 31.');
+    const date=value('creditImportBalanceDate');
+    if(date&&!dateIn(date)) throw new Error('Неверная дата сведений об остатке.');
+    if(existing&&balance!==null&&existing.balanceDate&&date&&date<existing.balanceDate) throw new Error('Справка старше сохранённых данных. Не перезаписывай актуальный остаток старым.');
+    if(existing?.contractTail&&draft.contractTail&&existing.contractTail!==draft.contractTail) throw new Error('Последние цифры договора не совпадают. Выбери правильный кредит.');
+    const kind=value('kind'),name=value('creditImportName');
+    if(!['mortgage','loan','creditcard','other'].includes(kind)||!name) throw new Error('Укажи название и вид кредита.');
+    const debt={id:existing?.id||uid(),name:existing?.name||name.slice(0,100),kind,
+      lender:'Сбербанк',balance:balance??existing?.balance??0,rate:rate??existing?.rate??0,
+      payment:payment??existing?.payment??0,dueDay:day??existing?.dueDay??0,
+      balanceDate:date||existing?.balanceDate||'',
+      notes:existing?.notes||'Импорт из кредитного документа Сбербанка. Поля проверены вручную.',
+      contractTail:draft.contractTail||existing?.contractTail||'',source:'sber-document'};
+    if(existing) Object.assign(existing,debt); else state.debts.push(debt);
+    await commit();draft=null;closeModal();activateTab('debts');notify(existing?'Кредит обновлён из PDF':'Кредит добавлен из PDF');
+  }
+  return {read,save,parse};
+})();
+
 function toB64(uint8){let str='';const size=8192;for(let i=0;i<uint8.length;i+=size)str+=String.fromCharCode(...uint8.subarray(i,i+size));return btoa(str);}
 function fromB64(s){const raw=atob(s);return Uint8Array.from(raw,c=>c.charCodeAt(0));}
 async function keyForPassword(password,salt){const material=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:250000,hash:'SHA-256'},material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}
@@ -495,7 +705,7 @@ async function restoreFromFile(file,password){
 }
 function setBusy(b){isBusy=b;$$('.sheet button[type=submit]').forEach(x=>x.disabled=b);}
 async function handleSubmit(event){
- const form=event.target;if(!['transactionForm','budgetForm','debtForm','subscriptionForm','importForm','exportForm','restoreForm'].includes(form.id))return;
+ const form=event.target;if(!['transactionForm','budgetForm','debtForm','subscriptionForm','importForm','creditPdfForm','exportForm','restoreForm'].includes(form.id))return;
  event.preventDefault();if(isBusy)return;setBusy(true);
  try{
   const data=new FormData(form);
@@ -517,10 +727,12 @@ async function handleSubmit(event){
    const dueDay=Number(data.get('dueDay')||0);
    if(dueDay && (!Number.isInteger(dueDay)||dueDay<1||dueDay>31))throw new Error('День платежа должен быть от 1 до 31');
    const kind=String(data.get('kind')||'loan');if(!['mortgage','loan','creditcard','other'].includes(kind))throw new Error('Неизвестный тип кредита');
-   const existing=state.debts.find(x=>x.id===form.dataset.id);const debt={id:existing?.id||uid(),name,kind,lender:String(data.get('lender')||'').slice(0,100),balance,rate,payment,dueDay,balanceDate:parseBankDate(data.get('balanceDate'))||'',notes:String(data.get('notes')||'').slice(0,350)};
+   const existing=state.debts.find(x=>x.id===form.dataset.id);const debt={id:existing?.id||uid(),name,kind,lender:String(data.get('lender')||'').slice(0,100),balance,rate,payment,dueDay,balanceDate:parseBankDate(data.get('balanceDate'))||'',notes:String(data.get('notes')||'').slice(0,350),contractTail:existing?.contractTail||'',source:existing?.source||'manual'};
    if(existing)Object.assign(existing,debt);else state.debts.push(debt);
    await commit();closeModal();notify('Кредит сохранён');
-  }else if(form.id==='subscriptionForm'){
+  }else if(form.id==='creditPdfForm'){
+    await creditPdf.save(form);
+   }else if(form.id==='subscriptionForm'){
    const name=String(data.get('name')||'').trim(),amount=Number(data.get('amount')),cycle=String(data.get('cycle')),status=String(data.get('status'));
    if(!name||!(amount>0)||!Number.isFinite(amount)||!CYCLE_LABEL[cycle]||!['active','paused','cancelled'].includes(status))throw new Error('Проверьте название, цену и период');
    const nextDate=String(data.get('nextDate')||'');if(nextDate&&!parseBankDate(nextDate))throw new Error('Укажите корректную дату');
@@ -560,6 +772,7 @@ async function handleAction(event){
  else if(action==='add-budget')openBudget();
  else if(action==='edit-budget')openBudget(id);
  else if(action==='add-debt')openDebt();
+  else if(action==='import-debt-sber')$('#sberDebtPdfFile').click();
  else if(action==='view-debts')activateTab('debts');
  else if(action==='view-subscriptions')activateTab('subscriptions');
  else if(action==='add-subscription')openSubscription();
@@ -610,7 +823,10 @@ async function start(){
  $('#sberPdfFile').addEventListener('change',async event=>{const file=event.target.files?.[0];event.target.value='';if(!file)return;
   try{notify('Читаем PDF на iPhone — без отправки на сервер');await handleSberPdf(file);}catch(e){console.error(e);notify(e?.message||'Ошибка чтения PDF');}
  });
- $('#backupFile').addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';if(file)openRestore(file);});
+ $('#sberDebtPdfFile').addEventListener('change',async event=>{const file=event.target.files?.[0];event.target.value='';if(!file)return;
+   try{notify('Читаем кредитный PDF на iPhone');await creditPdf.read(file);}catch(e){console.error(e);notify(e?.message||'Не удалось прочитать кредитный PDF');}
+  });
+  $('#backupFile').addEventListener('change',event=>{const file=event.target.files?.[0];event.target.value='';if(file)openRestore(file);});
  if(storageFallback)notify('Доступно только резервное локальное хранение. Делайте копии чаще.');
  if('serviceWorker' in navigator && location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW registration failed',e));
 }
