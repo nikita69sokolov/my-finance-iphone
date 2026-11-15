@@ -1,5 +1,5 @@
-const CACHE = 'my-finance-shell-v1.6.0';
-const ASSETS = ['./','./index.html','./styles.css','./app.js','./insights.js','./dashboard.js','./assistant.js','./assistant-ui.js','./import-v14.js','./vendor/pdf.min.mjs','./vendor/pdf.worker.min.mjs','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
+const CACHE = 'my-finance-shell-v1.6.0-r2';
+const ASSETS = ['./','./index.html','./styles.css?v=1.6.0','./app.js?v=1.6.0','./insights.js?v=1.6.0','./dashboard.js?v=1.6.0','./assistant.js?v=1.6.0','./assistant-ui.js?v=1.6.0','./import-v14.js?v=1.6.0','./vendor/pdf.min.mjs','./vendor/pdf.worker.min.mjs','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(()=>self.skipWaiting()));
 });
