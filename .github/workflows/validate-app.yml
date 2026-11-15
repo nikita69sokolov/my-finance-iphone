@@ -4,7 +4,6 @@ on:
     paths:
       - .github/workflows/validate-app.yml
       - app.js
-      - sber-import.js
       - index.html
       - sw.js
       - vendor/**
@@ -16,17 +15,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate scripts and PDF reader
+      - name: Check syntax and local PDF reader
         run: |
           set -euo pipefail
           node --check app.js
-          node --check sber-import.js
           node --check sw.js
           test -s index.html
           test -s vendor/pdf.min.mjs
           test -s vendor/pdf.worker.min.mjs
           node --check vendor/pdf.min.mjs
           node --check vendor/pdf.worker.min.mjs
-          grep -q 'sber-import.js' index.html
-          grep -q 'sber-import.js' sw.js
-          echo "Syntax and local-only PDF assets valid"
+          grep -q 'sberPdfFile' index.html
+          grep -q 'pdfSberRows' app.js
+          grep -q 'vendor/pdf.min.mjs' sw.js
+          grep -q 'renderSubscriptions' app.js
+          grep -q 'data-tab="subscriptions"' index.html
+          echo "Finance application syntax, subscriptions, and offline PDF assets valid"
