@@ -3,3 +3,6 @@
 
 /* v1.2 recurring commitments */
 .suggestion-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid var(--border)}.suggestion-row:last-child{border-bottom:0}.suggestion-row strong{font-size:14px}.suggestion-row .secondary-btn{flex-shrink:0}.debt-total .subtle{font-weight:500;font-size:12px}.nav-btn{font-size:9px;gap:5px}.metric-card .text-link{display:block;margin-top:5px;padding:4px 0}.small-top{margin-top:12px}.form-grid input[type=date]{min-width:0}
+
+/* v1.4 statement and savings review controls */
+.checkbox-row{display:flex;align-items:flex-start;gap:9px;padding:10px 2px;font-size:13px;line-height:1.45;color:var(--text)}.checkbox-row input{accent-color:var(--accent);margin-top:3px;min-width:17px;min-height:17px}.setting-card .budget-line{padding:7px 0;gap:12px}.setting-card .budget-line strong{text-align:right}.setting-card p{overflow-wrap:anywhere}
