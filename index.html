@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta name="application-version" content="1.6.2">
   <meta name="theme-color" content="#0a1020">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" sizes="any" type="image/svg+xml" href="./icon.svg">
   <link rel="apple-touch-icon" href="./icon-192.png">
-  <link rel="stylesheet" href="./styles.css?v=1.6.1">
+  <link rel="stylesheet" href="./styles.css?v=1.6.2">
   <title>Мои Финансы</title>
 </head>
 <body>
@@ -33,6 +34,7 @@
   </nav>
 </div>
 <div class="modal-backdrop hidden" id="modalBackdrop" role="presentation"><section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"><div class="sheet-handle"></div><div class="sheet-heading"><h2 id="sheetTitle"></h2><button class="icon-btn" id="closeModal" type="button" aria-label="Закрыть">✕</button></div><div class="sheet-body" id="sheetBody"></div></section></div>
+<div id="appUpdateNotice" class="app-update hidden" role="status"><span>Доступно обновление приложения</span><button type="button" class="primary-btn" data-action="refresh-app">Обновить</button></div>
 <div id="toast" role="status" aria-live="polite" class="toast hidden"></div>
 <input id="csvFile" type="file" accept=".csv,.txt,text/csv,text/plain" hidden>
 <input id="sberPdfFile" type="file" accept=".pdf,application/pdf" hidden>
@@ -40,13 +42,14 @@
 <input id="backupFile" type="file" accept=".json,.mfinance,application/json" hidden>
 <input id="bankRecordsFile" type="file" accept=".json,application/json" hidden>
 <input id="assistantPlanFile" type="file" accept=".json,application/json,text/plain" hidden>
-<script src="./import-v14.js?v=1.6.1" defer></script>
-<script src="./insights.js?v=1.6.1" defer></script>
-<script src="./dashboard.js?v=1.6.1" defer></script>
-<script src="./records.js?v=1.6.1" defer></script>
-<script src="./assistant.js?v=1.6.1" defer></script>
-<script src="./assistant-ui.js?v=1.6.1" defer></script>
-<script src="./records-ui.js?v=1.6.1" defer></script>
-<script src="./app.js?v=1.6.1" defer></script>
+<script src="./import-v14.js?v=1.6.2" defer></script>
+<script src="./insights.js?v=1.6.2" defer></script>
+<script src="./dashboard.js?v=1.6.2" defer></script>
+<script src="./records.js?v=1.6.2" defer></script>
+<script src="./assistant.js?v=1.6.2" defer></script>
+<script src="./assistant-ui.js?v=1.6.2" defer></script>
+<script src="./records-ui.js?v=1.6.2" defer></script>
+<script src="./updates.js?v=1.6.2" defer></script>
+<script src="./app.js?v=1.6.2" defer></script>
 </body>
 </html>

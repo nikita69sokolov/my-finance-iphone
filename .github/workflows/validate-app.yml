@@ -10,6 +10,7 @@ on:
       - assistant-ui.js
       - records.js
       - records-ui.js
+      - updates.js
       - import-v14.js
       - tests/**
       - index.html
@@ -37,6 +38,7 @@ jobs:
           node --check assistant-ui.js
           node --check records.js
           node --check records-ui.js
+          node --check updates.js
           node --check import-v14.js
           node --check sw.js
           test -s index.html

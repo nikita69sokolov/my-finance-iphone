@@ -21,7 +21,7 @@ const CATEGORY_DEFAULTS = [
   {id:'other-income',name:'Другие поступления',icon:'✨',color:'#c4d3b3',kind:'income'},
   {id:'transfer',name:'Перевод между счетами',icon:'↔️',color:'#8393a6',kind:'transfer'}
 ];
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.2';
 const DEFAULT_STATE = () => ({version:4,transactions:[],budgets:{},budgetMonths:{},budgetPlans:{},debts:[],subscriptions:[],savings:[],categories:structuredCloneSafe(CATEGORY_DEFAULTS)});
 let state = DEFAULT_STATE();
 let db = null;
@@ -34,6 +34,7 @@ let transactionCategoryFilter = '';
 let importDraft = null;
 let subscriptionCandidatesHidden = false;
 let isBusy = false;
+let appRefreshBusy = false;
 const fmtRub = new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:2});
 const fmtShort = new Intl.NumberFormat('ru-RU',{maximumFractionDigits:0});
 const fmtDate = new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'short'});
@@ -250,7 +251,7 @@ function renderSubscriptions(){
 }
 function renderSettings(){
  return heading('Настройки','ДАННЫЕ И ПРИВАТНОСТЬ')+`
- <div class="stack"><div class="notice">Ваши записи хранятся локально на устройстве. Автоматической отправки финансовых данных нет. В разделе «Помощник» можно самому подготовить сводку и передать её в ChatGPT.</div>
+ <div class="stack"><div class="setting-card"><h3>Версия ${APP_VERSION}</h3><p>Загрузи свежую версию, если не видишь новых кнопок. Обновление сохраняет операции, кредиты, накопления и бюджеты.</p><button class="secondary-btn wide" type="button" data-action="refresh-app">Обновить приложение</button></div><div class="notice">Ваши записи хранятся локально на устройстве. Автоматической отправки финансовых данных нет. В разделе «Помощник» можно самому подготовить сводку и передать её в ChatGPT.</div>
  <div class="setting-card"><h3>Финансовый помощник</h3><p>Анализ расходов в ChatGPT и загрузка предложенного бюджета обратно. Без дополнительных подписок и API-ключей.</p><button class="primary-btn wide" type="button" data-action="view-assistant">Открыть помощника</button></div>
  <div class="setting-card"><h3>Сбербанк · только чтение</h3><p>Откройте СберБанк Онлайн → «Выписки и справки» → получите выписку по карте/счёту в PDF → сохраните в «Файлы» на iPhone. Мы прочитаем документ прямо на телефоне, покажем результат перед импортом и не будем подключаться к банковскому аккаунту.</p><div class="notice">Без входа в банк, SMS и кодов подтверждения. Переводы, платежи и управление счетами технически отсутствуют.</div><button type="button" data-action="import-sber" class="primary-btn wide small-top">Загрузить выписку Сбербанка (все страницы)</button><p class="subtle small-top">Распознавание текстовых PDF — предварительная версия. Внимательно проверьте даты, направления и суммы. Сканированные PDF могут не прочитаться.</p></div>
  <div class="setting-card"><h3>Кредиты и ипотека · PDF Сбербанка</h3><p>В СберБанк Онлайн открой кредит → «О кредите» → «График» или закажи справку о задолженности в «Выписки и справки». Сохрани PDF в «Файлы» и загрузи здесь: приложение заполнит найденные параметры и предложит обновить существующий кредит либо создать новый.</p><button type="button" data-action="import-debt-sber" class="secondary-btn wide">Распознать кредит или ипотеку</button><p class="subtle small-top">Файл остаётся на iPhone. Проверяй числа: в разных справках есть не все показатели. Сканированные документы и PDF с паролем могут не распознаться.</p></div>
@@ -918,6 +919,13 @@ async function handleSubmit(event){
 async function handleAction(event){
  const b=event.target.closest('[data-action]');if(!b)return;
  const action=b.dataset.action, id=b.dataset.id;
+ if(action==='refresh-app'){
+  if(appRefreshBusy)return;
+  appRefreshBusy=true;b.disabled=true;notify('Загружаем обновление. Записи сохраняются.');
+  try{await FinanceUpdates.refresh({navigator,location},APP_VERSION);}catch(error){notify(error.message||'Не удалось обновить приложение. Проверь интернет и повтори.');}
+  finally{appRefreshBusy=false;b.disabled=false;}
+  return;
+ }
  if(action.startsWith('bank-records-')){await handleBankRecordsAction(action);return;}
  if(action==='view-assistant'||action.startsWith('assistant-')){await handleAssistantAction(action);return;}
  if(action==='month-prev'||action==='month-next'){activeMonth=monthShift(activeMonth,action==='month-prev'?-1:1);render();}
@@ -999,6 +1007,6 @@ async function start(){
  $('#assistantPlanFile').addEventListener('change',async event=>{const file=event.target.files?.[0];event.target.value='';if(file)try{await readAssistantPlanFile(file);}catch(error){notify(error.message||'Не удалось прочитать план помощника.');}});
  if(storageFallback)notify('Доступно только резервное локальное хранение. Делайте копии чаще.');
  $('#bankRecordsFile').addEventListener('change',async event=>{const file=event.target.files?.[0];event.target.value='';if(file)try{if(file.size>256*1024)throw new Error('Файл должен быть не больше 256 КБ.');await previewBankRecords(await file.text());}catch(error){notify(error.message||'Не удалось прочитать записи.');}});
- if('serviceWorker' in navigator && location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW registration failed',e));
+ FinanceUpdates.monitor({navigator,location,document,window},APP_VERSION,()=>$('#appUpdateNotice').classList.remove('hidden')).catch(e=>console.warn('Update check unavailable',e));
 }
 start().catch(e=>{console.error(e);$('#app').innerHTML=`<div class="notice warn">Ошибка запуска. Попробуйте обновить страницу. Если проблема повторится, не удаляйте приложение, чтобы сохранить данные.</div>`;});

@@ -92,3 +92,6 @@
 .bank-record-line{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid #ffffff0e;font-size:12px;line-height:1.55}
 .bank-record-line>span{color:var(--muted);max-width:65%;overflow-wrap:anywhere}.bank-record-line>strong{text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .bank-observation{margin-top:14px;border-top:1px solid var(--border);padding-top:4px}.bank-observation summary{min-height:44px;padding:13px 0;color:var(--accent);font-size:12px;cursor:pointer}.bank-observation .subtle{margin-bottom:0}
+
+.app-update{position:fixed;top:calc(8px + env(safe-area-inset-top));left:12px;right:12px;max-width:596px;margin:auto;z-index:45;display:flex;align-items:center;gap:12px;background:#18382f;border:1px solid #5eab8e;border-radius:16px;padding:12px;box-shadow:var(--shadow)}
+.app-update>span{flex:1;font-size:12px;line-height:1.5;color:#d3f4e7}.app-update button{font-size:12px;padding:10px 12px;flex:none}
